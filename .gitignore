@@ -1,0 +1,16 @@
+# Ignore cache folder with pickle files
+cache/
+
+# Ignore Python virtual environment
+.venv/
+venv/
+env/
+
+# Ignore Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Unified Portfolio Optimizer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+  <style>
+    :root {
+      --primary: #004080;
+      --light-bg: #f9f9f9;
+      --card-bg: #ffffff;
+      --input-bg: #fafafa;
+      --border: #d0d7de;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background: var(--light-bg);
+      color: #333;
+      font-size: 16px;
+    }
+
+    header {
+      background-color: var(--primary);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2rem;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      margin: 0;
+    }
+
+    .logo {
+      height: 40px;
+    }
+
+    main {
+      max-width: 900px;
+      margin: auto;
+      padding: 40px 20px;
+    }
+
+    form {
+      background: var(--card-bg);
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+      text-align: center;
+      color: var(--primary);
+      margin-bottom: 25px;
+    }
+
+    label {
+      font-weight: 600;
+      display: block;
+      margin: 20px 0 6px;
+    }
+
+    input[type="date"],
+    input[type="number"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 16px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-sizing: border-box;
+    }
+    .copy-btn {
+      float: right;
+      margin: 10px 0;
+      background-color: #eef4ff;
+      border: 1px solid #b4d0f5;
+      color: #003366;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .copy-btn:hover {
+      background-color: #d8eaff;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--primary);
+      background: #fff;
+    }
+
+    .submit-btn {
+      margin-top: 30px;
+      width: 100%;
+      padding: 14px;
+      background-color: var(--primary);
+      color: white;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .submit-btn:hover {
+      background-color: #0056b3;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+
+    table th, table td {
+      border: 1px solid var(--border);
+      padding: 10px;
+      vertical-align: middle;
+    }
+
+    table th {
+      background-color: #f1f6fb;
+      color: #333;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .input-table input[type="text"],
+    .input-table input[type="number"] {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 16px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--input-bg);
+      box-sizing: border-box;
+    }
+
+    .input-table td {
+      padding: 8px;
+    }
+
+    .input-table tbody tr:hover {
+      background-color: #f8fbff;
+    }
+
+    button[type="button"] {
+      margin-top: 12px;
+      padding: 8px 14px;
+      font-size: 14px;
+      background: #eef4ff;
+      border: 1px solid #b4d0f5;
+      color: #003366;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button[type="button"]:hover {
+      background: #d6e9ff;
+    }
+    .autocomplete-list div:hover {
+      background-color: #ddd;
+    }
+
+    .results {
+      background: var(--card-bg);
+      padding: 30px;
+      margin-top: 40px;
+      border-radius: 10px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+
+    .results table td, .results table th {
+      font-size: 15px;
+    }
+
+    footer {
+      background-color: #b4b4b4;
+      padding: 20px 2rem;
+      text-align: center;
+      font-size: 14px;
+      color: #555;
+    }
+    .input-table th {
+      border-bottom: 1px solid #ccc;
+      font-weight: 600;
+      border: none !important;
+    }
+    /* Remove borders inside tbody */
+    .input-table tbody tr,
+    .input-table tbody td {
+      border: none !important;
+    }
+
+    .contact-info {
+      margin-top: 5px;
+    }
+
+    @media (max-width: 600px) {
+      input, select, button {
+        font-size: 14px;
+      }
+
+      table, th, td {
+        font-size: 14px;
+      }
+
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      header h1 {
+        margin-bottom: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+    <header>
+        <h1>Portfolio Visulizer</h1>
+        <div class="emoji-logo">🧊</div>
+    </header>
+    <form method="POST" action="/">
+        <h2 style="margin-bottom: 25px;">Portfolio Inputs</h2>
+        {% if error %}
+          <script>
+            alert("{{ error }}");
+          </script>
+        {% endif %}
+        <table class="input-table">
+            <thead>
+                <tr>
+                    <th>Ticker</th>
+                    <th>Min Weight (%)</th>
+                    <th>Max Weight (%)</th>
+                </tr>
+            </thead>
+            <tbody id="assets-tbody">
+              {% for i in range(asset_count) %}
+                {% set ticker = selected_tickers[i] if selected_tickers|length > i else '' %}
+                <tr>
+                  <td>
+                    <input
+                      type="text"
+                      name="tickers_{{ i }}"
+                      class="ticker-input"
+                      autocomplete="off"
+                      value="{{ ticker }}"
+                      data-index="{{ i }}"
+                    >
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      name="min_{{ i }}"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value="{{ (min_weights[ticker] * 100) if ticker and (ticker in min_weights) else 0 }}"
+                    >
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      name="max_{{ i }}"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value="{{ (max_weights[ticker] * 100) if ticker and (ticker in max_weights) else 15 }}"
+                    >
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+
+        </table>
+        <button type="button" onclick="addRow()">Add Asset</button>
+        
+        <div style="margin-top: 25px;">
+            <label>Start Date:</label>
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </div>
+        <div>
+            <label>End Date:</label>
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </div>
+
+        <div style="margin-top: 25px;">
+            <label>Target Return:</label>
+            <input type="number" step="0.01" name="target_return" required value="{{ target_return or 0.15 }}">
+        </div>
+        <div>
+            <label>Target Volatility:</label>
+            <input type="number" step="0.01" name="target_volatility" required value="{{ target_volatility or 0.13 }}">
+        </div>
+
+        <button class="submit-btn" type="submit">Run Optimization</button>
+    </form>
+
+    {% if mu is not none and not mu.empty %}
+        <div class="results">
+            <h2>Expected Returns (Mu)</h2>
+            <button class="copy-btn" onclick="copyTable('mu_table')">Copy 📄</button>
+            <table id ="mu_table">
+                <tr><th>Ticker</th><th>Expected Return</th><th>Total Return</th></tr>
+                {% for ticker in mu.index %}
+                    <tr>
+                        <td>{{ ticker }}</td>
+                        <td>{{ '%.2f'|format(mu[ticker] * 100) }}%</td>
+                        <td>{{ '%.2f'|format(tr[ticker] * 100) }}%</td>
+                    </tr>
+                {% endfor %}
+            </table>
+
+            <h2>Optimized Performance</h2>
+            <div style="overflow-x: auto;">
+                {% if df_perf is not none and not df_perf.empty %}
+                <button class="copy-btn" onclick="copyTable('perf-summary')">Copy 📄</button>
+                <table id="perf-summary">
+                        <thead>
+                            <tr>
+                                {% for col in df_perf.columns %}
+                                    <th>{{ col }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for _, row in df_perf.iterrows() %}
+                            <tr>
+                                {% for val in row %}
+                                <td>
+                                    {% if val is number %}
+                                    {{ "%.3f"|format(val) }}
+                                    {% else %}
+                                    {{ val }}
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% endif %}
+            </div>
+
+            <h2>Asset Allocation</h2>
+            <div style="overflow-x: auto;">
+                {% if df_alloc is not none and not df_perf.empty %}
+                <button class="copy-btn" onclick="copyTable('allocation-table')">Copy 📄</button>
+                    <table id="allocation-table">
+                        <thead>
+                            <tr>
+                            {% for col in df_alloc.columns %}
+                                <th>{{ col }}</th>
+                            {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for _, row in df_alloc.iterrows() %}
+                            <tr>
+                                {% for val in row %}
+                                <td>
+                                    {% if val is number %}
+                                    {{ "%.3f"|format(val) }}
+                                    {% else %}
+                                    {{ val }}
+                                    {% endif %}
+                                </td>
+                                {% endfor %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% endif %}
+            </div>
+
+            <h2>Correlation Matrix</h2>
+            {% if corr_matrix is not none and not corr_matrix.empty %}
+                <button class="copy-btn" onclick="copyTable('matrix')">Copy 📄</button>
+                <table id="matrix">
+                    <tr>
+                        <th></th>
+                        {% for col in corr_matrix.columns %}
+                            <th>{{ col }}</th>
+                        {% endfor %}
+                    </tr>
+                    {% for idx in corr_matrix.index %}
+                        <tr>
+                            <th>{{ idx }}</th>
+                            {% for col in corr_matrix.columns %}
+                                <td>{{ '%.2f'|format(corr_matrix.loc[idx, col]) }}</td>
+                            {% endfor %}
+                        </tr>
+                    {% endfor %}
+                </table>
+            {% endif %}
+        </div>
+    {% endif %}   
+    <footer>
+        <p>&copy; 2025 Phat Diep. All rights reserved.</p>
+        <div class="contact-info">
+        Contact: <a href="mailto:hungphatdiep03.@gmail.com">hungphatdiep03.@gmail.com</a> | +974-3063-6181
+        </div>
+    </footer>
+    <script>
+      function copyTable(tableId) {
+      const table = document.getElementById(tableId);
+      let range = document.createRange();
+      range.selectNode(table);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+      try {
+        document.execCommand('copy');
+        alert("Table copied to clipboard!");
+      } catch (err) {
+        alert("Failed to copy.");
+      }
+      window.getSelection().removeAllRanges();
+    }
+    </script>
+    <script>
+      function addRow() {
+      const tbody = document.getElementById('assets-tbody');
+      const newRow = document.createElement('tr');
+
+      newRow.innerHTML = `
+        <td><input type="text" name="tickers[]" list="tickers-list" autocomplete="off" /></td>
+        <td><input type="number" name="min_" min="0" max="100" step="0.01" value="0" /></td>
+        <td><input type="number" name="max_" min="0" max="100" step="0.01" value="15" /></td>
+      `;
+
+      tbody.appendChild(newRow);
+    }
+    </script>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+      // Attach input event listener on all ticker inputs
+      document.querySelectorAll('.ticker-input').forEach(input => {
+        input.addEventListener('input', async (e) => {
+          const query = e.target.value.trim().toUpperCase();
+          if (query.length < 1) {
+            closeAutocomplete(e.target);
+            return;
+          }
+          try {
+            const response = await fetch(`/api/tickers?q=${encodeURIComponent(query)}`);
+            if (!response.ok) throw new Error('Network error');
+            const suggestions = await response.json();
+            showAutocomplete(e.target, suggestions);
+          } catch (err) {
+            console.error('Autocomplete fetch error:', err);
+            closeAutocomplete(e.target);
+          }
+        });
+      });
+
+      function showAutocomplete(input, suggestions) {
+        closeAutocomplete(input);
+        if (!suggestions.length) return;
+
+        const list = document.createElement('div');
+        list.classList.add('autocomplete-list');
+        list.style.position = 'absolute';
+        list.style.border = '1px solid #ccc';
+        list.style.backgroundColor = '#fff';
+        list.style.zIndex = '1000';
+        list.style.maxHeight = '150px';
+        list.style.overflowY = 'auto';
+
+        suggestions.forEach(item => {
+          const option = document.createElement('div');
+          option.textContent = item;
+          option.style.padding = '4px';
+          option.style.cursor = 'pointer';
+          option.addEventListener('mousedown', () => {
+            input.value = item;
+            closeAutocomplete(input);
+          });
+          list.appendChild(option);
+        });
+
+        input.parentNode.style.position = 'relative'; // Ensure relative positioning
+        input.parentNode.appendChild(list);
+      }
+
+      function closeAutocomplete(input) {
+        const lists = input.parentNode.querySelectorAll('.autocomplete-list');
+        lists.forEach(list => list.remove());
+      }
+
+      // Close autocomplete lists when clicking outside
+      document.addEventListener('click', e => {
+        document.querySelectorAll('.autocomplete-list').forEach(list => list.remove());
+      });
+    });
+    </script>
+</body>
+</html>
