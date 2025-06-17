@@ -31,7 +31,7 @@ limiter = Limiter(
 )
 
 prices_df = pd.read_parquet('data/prices.parquet')
-ticker_sector_df = pd.read_parquet('data/tickers_with_sectors.csv')
+ticker_sector_df = pd.read_parquet('data/tickers_with_sectors.parquet')
 
 # Assuming the ticker column is named 'ticker' or similar
 unique_tickers = sorted(prices_df['Ticker'].unique())
