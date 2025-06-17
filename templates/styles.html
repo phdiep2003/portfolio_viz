@@ -1,0 +1,273 @@
+<style>
+  :root {
+    --primary: rgb(176, 28, 51);
+    --secondary: rgb(206, 42, 67);
+    --light-bg: #f9f9f9;
+    --card-bg: #ffffff;
+    --input-bg: #fafafa;
+    --border: #ded0d0;
+  }
+
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: var(--light-bg);
+    color: #333;
+    font-size: 16px;
+  }
+
+  header {
+    background-color: var(--primary);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 2rem;
+  }
+
+  header h1 {
+    font-size: 1.5rem;
+    margin: 0;
+  }
+
+
+  #logo {
+    font-size: 18px;
+    font-weight: normal;
+    color: #ffffff;
+    margin-top: 5px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+
+  #logo:hover {
+    color: #333;
+  }
+
+  main {
+    max-width: 900px;
+    margin: auto;
+    padding: 40px 20px;
+  }
+
+  form {
+    background: var(--card-bg);
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+
+  h2 {
+    text-align: center;
+    color: var(--primary);
+    margin-bottom: 20px;
+  }
+
+  h3 {
+    margin-top: 0px;
+    margin-bottom: 0px;
+  }
+
+  label {
+    font-weight: 600;
+    display: block;
+    margin: 20px 0 6px;
+  }
+
+  input[type="date"],
+  input[type="number"],
+  input[type="text"],
+  select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 16px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-sizing: border-box;
+  }
+  .copy-btn {
+    float: right;
+    margin-bottom: 10px;
+    background-color: #eef4ff;
+    border: 1px solid #b4d0f5;
+    color: #003366;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  .copy-btn:hover {
+    background-color: #d8eaff;
+  }
+
+  input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: #fff;
+  }
+
+  .submit-btn {
+    margin-top: 30px;
+    width: 100%;
+    padding: 14px;
+    background-color: var(--primary);
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .submit-btn:hover {
+    background-color: #333;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+  }
+
+  table th, table td {
+    border: 1px solid var(--border);
+    padding: 10px;
+    vertical-align: middle;
+  }
+
+  table th {
+    background-color: var(--secondary);
+    color: #ffffff;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .input-table input[type="text"],
+  .input-table input[type="number"] {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 16px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--input-bg);
+    box-sizing: border-box;
+  }
+
+  .input-table td {
+    padding: 8px;
+    min-width: 100px;
+  }
+
+  .input-table tbody tr:hover {
+    background-color: #f8fbff;
+  }
+
+  .input-with-symbol {
+    position: relative;
+    display: inline-block;
+    width: 100%;
+  }
+
+  .input-with-symbol input {
+      padding-right: 20px; /* space for the % symbol */
+      width: 100%;
+      box-sizing: border-box;
+  }
+
+  .percent-symbol {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-weight: bold;
+      color: #666;
+      pointer-events: none;
+  }
+
+  button[type="button"] {
+    margin-top: 12px;
+    padding: 8px 14px;
+    font-size: 14px;
+    background: #333;
+    color: #ffffff;
+    border: none;
+    border-radius: 2px;
+    cursor: pointer;
+  }
+
+  button[type="button"]:hover {
+    background: var(--secondary);
+  }
+  .autocomplete-list div:hover {
+    background-color: #ddd;
+  }
+
+  .results {
+    background: var(--card-bg);
+    padding: 30px;
+    margin-top: 40px;
+    border-radius: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+
+  .results table td, .results table th {
+    font-size: 15px;
+  }
+
+  footer {
+    background-color: #888888;
+    padding: 20px 2rem;
+    text-align: center;
+    font-size: 14px;
+    color: #000000;
+  }
+  .input-table th {
+    border-bottom: 1px solid #ccc;
+    font-weight: 600;
+    border: none !important;
+  }
+  /* Remove borders inside tbody */
+  .input-table tbody tr,
+  .input-table tbody td {
+    border: none !important;
+  }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .contact-info {
+    margin-top: 5px;
+  }
+
+  @media (max-width: 600px) {
+    input, select, button {
+      font-size: 14px;
+    }
+
+    table, th, td {
+      font-size: 14px;
+    }
+
+    header {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    header h1 {
+      margin-bottom: 10px;
+    }
+  }
+  .ui-autocomplete {
+    max-height: 300px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 9999 !important;
+  }
+  .plot-container {
+    margin-top: 0px;
+  }
+</style>

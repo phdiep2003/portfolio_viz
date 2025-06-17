@@ -2,16 +2,16 @@ from flask import Flask, request, jsonify, render_template
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
 import warnings
 from pypfopt.risk_models import CovarianceShrinkage
 from pypfopt.efficient_frontier import EfficientFrontier
-from typing import Dict, Tuple, List, Optional, Any
+from typing import Dict, Tuple, List, Any
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import json, pickle
 import os
-from functools import wraps
 
 warnings.filterwarnings("ignore")
 
@@ -19,6 +19,7 @@ app = Flask(__name__)
 app.secret_key = "123459876"  # TODO: Replace with secure secret key in production
 
 prices_df = pd.read_parquet('data/prices.parquet')
+ticker_sector_df = pd.read_csv('tickers_with_sectors.csv')
 
 # Assuming the ticker column is named 'ticker' or similar
 unique_tickers = sorted(prices_df['Ticker'].unique())
@@ -28,11 +29,12 @@ CACHE_DIR = 'cache'
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 class Config:
+    SAMPLE_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'MS', 'T', 'XOM','NEM']
     DEFAULT_START_DATE = "2020-01-01"
     DEFAULT_END_DATE = "2025-01-01"
     RISK_FREE_RATE = 0.03
-    TARGET_RETURN = 0.15
-    TARGET_RISK = 0.13
+    TARGET_RETURN = 0.23
+    TARGET_RISK = 0.22
     CACHE_EXPIRY_DAYS = 10  # Number of days to keep cached data
 
 # --- Cache Utilities ---
@@ -108,8 +110,8 @@ class PortfolioOptimizer:
         strategies = {
             "Min Volatility": lambda ef: ef.min_volatility(),
             "Max Sharpe": lambda ef: ef.max_sharpe(risk_free_rate=risk_free_rate),
-            f"Efficient Return {target_return:.3f}": lambda ef: ef.efficient_return(target_return),
-            f"Efficient Risk {target_volatility:.3f}": lambda ef: ef.efficient_risk(target_volatility),
+            f"Efficient Return (target: {target_return:.3f})": lambda ef: ef.efficient_return(target_return),
+            f"Efficient Risk (target: {target_volatility:.3f})": lambda ef: ef.efficient_risk(target_volatility),
         }
 
         for name, strategy in strategies.items():
@@ -162,12 +164,195 @@ class PortfolioOptimizer:
 
         return pd.DataFrame(perf_rows), pd.DataFrame(alloc_rows)
 
-@dataclass
-class ChartData:
-    ticker: str
-    expected_return: float
-    chart_html: str
-
+class Chart:
+    @staticmethod
+    def create_efficient_frontier_plot(mu, vol, sharpe, ef_returns, ef_volatility):
+        """
+        Create interactive efficient frontier plot with Plotly Express
+        
+        Parameters:
+        - mu: Expected returns of individual assets
+        - vol: Volatility of individual assets
+        - sharpe: Sharpe ratios of individual assets
+        - ef_returns: Efficient frontier portfolio returns
+        - ef_volatility: Efficient frontier portfolio volatilities
+        """
+        # Create DataFrame for individual assets
+        assets_df = pd.DataFrame({
+            'Ticker': mu.index,
+            'Expected Return': mu * 100,
+            'Volatility': vol * 100,
+            'Sharpe Ratio': sharpe
+        })
+        
+        # Sort frontier points by volatility to ensure proper line drawing
+        frontier_points = sorted(zip(ef_volatility * 100, ef_returns * 100), key=lambda x: x[0])
+        frontier_vol, frontier_ret = zip(*frontier_points)
+        
+        # Create base figure with individual assets
+        fig = go.Figure()
+        
+        # Add individual assets with color based on Sharpe ratio (but without colorbar)
+        for _, row in assets_df.iterrows():
+            fig.add_trace(
+                go.Scatter(
+                    x=[row['Volatility']],
+                    y=[row['Expected Return']],
+                    mode='markers+text',
+                    name=row['Ticker'],
+                    marker=dict(
+                        size=12,
+                        color=row['Sharpe Ratio'],
+                        colorscale='Viridis',
+                        showscale=False,  # This removes the colorbar
+                        line=dict(width=1, color='black')
+                    ),
+                    text=[row['Ticker']],
+                    textposition='top center',
+                    hovertemplate=
+                        '<b>'+row['Ticker']+'</b><br>'+
+                        'Volatility: %{x:.2f}%<br>' +
+                        'Return: %{y:.2f}%<br>' +
+                        'Sharpe: %.2f<extra></extra>' % row['Sharpe Ratio'],
+                    showlegend=False
+                )
+            )
+        
+        # Add efficient frontier line (now properly sorted)
+        fig.add_trace(
+            go.Scatter(
+                x=frontier_vol,
+                y=frontier_ret,
+                mode='lines',
+                name='Efficient Frontier',
+                line=dict(color='red', width=3),
+                hovertemplate='<b>Volatility</b>: %{x:.2f}%<br><b>Return</b>: %{y:.2f}%'
+            )
+        )
+        
+        # Highlight max Sharpe ratio portfolio
+        max_sharpe_idx = np.argmax((ef_returns - 0.02) / ef_volatility)  # Assuming 2% risk-free rate
+        fig.add_trace(
+            go.Scatter(
+                x=[ef_volatility[max_sharpe_idx] * 100],
+                y=[ef_returns[max_sharpe_idx] * 100],
+                mode='markers',
+                name='Max Sharpe Ratio',
+                marker=dict(
+                    symbol='star',
+                    size=20,
+                    color='green',
+                    line=dict(width=1, color='black')
+                ),
+                hovertemplate=
+                    '<b>Max Sharpe Portfolio</b><br>' +
+                    'Volatility: %{x:.2f}%<br>' +
+                    'Return: %{y:.2f}%<extra></extra>'
+            )
+        )
+        
+        # Add minimum volatility portfolio (leftmost point)
+        min_vol_idx = np.argmin(ef_volatility)
+        fig.add_trace(
+            go.Scatter(
+                x=[ef_volatility[min_vol_idx] * 100],
+                y=[ef_returns[min_vol_idx] * 100],
+                mode='markers',
+                name='Min Volatility',
+                marker=dict(
+                    symbol='diamond',
+                    size=20,
+                    color='orange',
+                    line=dict(width=1, color='black')
+                ),
+                hovertemplate=
+                    '<b>Min Volatility Portfolio</b><br>' +
+                    'Volatility: %{x:.2f}%<br>' +
+                    'Return: %{y:.2f}%<extra></extra>'
+            )
+        )
+        
+        # Update layout
+        fig.update_layout(
+            xaxis_title='Annualized Volatility (%)',
+            yaxis_title='Annualized Return (%)',
+            hovermode='closest',
+            template='plotly_white',
+            height=600,
+            margin=dict(l=50, r=50, b=50, t=80, pad=4),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            showlegend=True
+        )
+        
+        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+    
+    @staticmethod
+    def heatmap(selected_tickers):
+        filtered_df = ticker_sector_df[ticker_sector_df['Ticker'].isin(selected_tickers)].copy()
+        
+        # Create equal weights for uniform box sizes
+        filtered_df['Weight'] = 1
+        
+        # Create color mapping for sectors only
+        unique_sectors = filtered_df['Sector'].unique()
+        sector_colors = px.colors.qualitative.G10[:len(unique_sectors)]
+        color_map = dict(zip(unique_sectors, sector_colors))
+        
+        # Create the treemap with all boxes initially white
+        fig = px.treemap(
+            filtered_df,
+            path=['Sector', 'Ticker'],
+            values='Weight',
+            color_discrete_sequence=['white']  # Start with all white
+        )
+        
+        # Custom coloring - only color the sector (parent) boxes
+        colors = []
+        text_colors = []
+        for label, parent in zip(fig.data[0].labels, fig.data[0].parents):
+            if parent == '':  # This is a sector box
+                colors.append(color_map[label])
+                text_colors.append('white')  # White text for colored sectors
+            else:  # This is a stock box
+                colors.append('white')
+                text_colors.append('black')  # Black text for white stocks
+        
+        # Apply custom styling
+        fig.update_traces(
+            marker_colors=colors,
+            textfont_color=text_colors,
+            textinfo="label",
+            textposition="middle center",
+            textfont=dict(size=16),
+            marker=dict(
+                line=dict(width=1, color="darkgray")
+            ),
+            hovertemplate='<b>%{label}</b><br>Sector: %{parent}<extra></extra>',
+            branchvalues='total',
+            tiling=dict(
+                packing='squarify',
+                squarifyratio=1  # More uniform box sizes
+            )
+        )
+        
+        fig.update_layout(
+            margin=dict(t=30, l=0, r=0, b=10),
+            paper_bgcolor="white",
+            plot_bgcolor="white",
+            uniformtext=dict(
+                minsize=12,
+                mode='hide'
+            ),
+            showlegend=False
+        )
+        
+        return fig.to_html(full_html=False, include_plotlyjs='cdn') 
 # --- ParquetDataService with Caching ---
 class ParquetDataService:
     def __init__(self, price_path="data/prices.parquet", dividend_path="data/dividends.parquet"):
@@ -218,7 +403,7 @@ class ParquetDataService:
         merged['Years'] = (end_dt - merged['Date_Start']).dt.days / 365.25
         merged['Total Return'] = ((merged['Close_End'] + merged['Reinvested']) / merged['Close_Start']) - 1
         merged['Annualized Return'] = (1 + merged['Total Return']) ** (1 / merged['Years']) - 1
-        return merged[['Ticker', 'Reinvested', 'Date_Start', 'Close_Start', 'Close_End', 'Total Return', 'Annualized Return']]
+        return merged[['Ticker','Years','Total Return', 'Annualized Return']]
 
     def filter_date_range(self, df: pd.DataFrame, date_col: str, start: str, end: str) -> pd.DataFrame:
         df[date_col] = pd.to_datetime(df[date_col], errors='coerce')
@@ -229,7 +414,6 @@ class ParquetDataService:
         pivoted = grouped.pivot(index='ExDate', columns='Ticker', values='Dividend')
         return pivoted.reindex(price_df.index).fillna(0)
 
-
 @app.route('/api/tickers')
 def tickers_api():
     q = request.args.get('q', '').upper()
@@ -239,8 +423,25 @@ def tickers_api():
 
 @app.route('/', methods=['GET', 'POST'])
 def unified_portfolio():
-    df = pd.read_parquet('data/prices.parquet')
-    tickers = sorted(df['Ticker'].unique().tolist())
+    context = {
+        'selected_tickers': Config.SAMPLE_TICKERS,
+        'asset_count': 10,
+        'start_date': Config.DEFAULT_START_DATE,
+        'end_date': Config.DEFAULT_END_DATE,
+        'mu': None,
+        'efficient_frontier_plot,': None,
+        'heatmap_plot': None,
+        'vol': None,
+        'sharpe': None,
+        'df_perf': None,
+        'df_alloc': None,
+        'corr_matrix': None,
+        'min_weights': {},
+        'max_weights': {},
+        'target_return': Config.TARGET_RETURN,
+        'target_volatility': Config.TARGET_RISK,
+        'error': None
+    }
 
     if request.method == 'POST':
         try:
@@ -260,6 +461,17 @@ def unified_portfolio():
                     min_weights[ticker] = min_value
                     max_weights[ticker] = max_value
 
+            context.update({
+                'selected_tickers': selected_tickers,
+                'asset_count': len(selected_tickers),
+                'start_date': start_date,
+                'end_date': end_date,
+                'min_weights': min_weights,
+                'max_weights': max_weights,
+                'target_return': target_return,
+                'target_volatility': target_volatility
+            })
+
             # Generate cache key
             cache_key_val = make_cache_key(
                 selected_tickers, start_date, end_date,
@@ -270,142 +482,91 @@ def unified_portfolio():
             # Check if cached result exists
             if cache_exists(cache_key_val):
                 cached_data = load_cache(cache_key_val)
-                return render_template(
-                    'unified_portfolio.html',
-                    all_tickers=tickers,
-                    selected_tickers=selected_tickers,
-                    asset_count=len(selected_tickers),
-                    start_date=start_date,
-                    end_date=end_date,
-                    mu=cached_data['mu'],
-                    tr=cached_data['tr'],
-                    df_perf=cached_data['df_perf'],
-                    df_alloc=cached_data['df_alloc'],
-                    corr_matrix=cached_data['corr_matrix'],
-                    min_weights=min_weights,
-                    max_weights=max_weights,
-                    target_return=target_return,
-                    target_volatility=target_volatility
-                )
+                context.update({
+                    'mu': cached_data['mu'],
+                    'vol': cached_data['vol'],
+                    'sharpe': cached_data['sharpe'],
+                    'df_perf': cached_data['df_perf'],
+                    'df_alloc': cached_data['df_alloc'],
+                    'corr_matrix': cached_data['corr_matrix'],
+                    'efficient_frontier_plot': cached_data['efficient_frontier_plot'],
+                    'heatmap_plot': cached_data['heatmap_plot']
+                })
+            else:
+                
+                # === No cache found, do full calculation ===
+                data_service = ParquetDataService()
+                returns_df = data_service.get_returns(selected_tickers, start_date, end_date)
 
-            # === No cache found, do full calculation ===
-            data_service = ParquetDataService()
+                # Check for missing return data per ticker
+                missing_returns = [t for t in selected_tickers if t and returns_df[returns_df['Ticker'] == t].dropna().empty]
+                if missing_returns:
+                    context['error'] = f"No return data for tickers: {', '.join(missing_returns)}"
+                else:
+                    mu = returns_df.groupby('Ticker')['Annualized Return'].first()
+                    # tr = returns_df.groupby('Ticker')['Total Return'].first()
+                    # yrs = returns_df.groupby('Ticker')['Years'].first()                    
+                    prices_df = data_service.get_prices(selected_tickers, start_date, end_date)
+                    # Check for missing price data per ticker
+                    missing_prices = [t for t in selected_tickers if t and prices_df[prices_df['Ticker'] == t].empty]
+                    if missing_prices:
+                        context['error'] = f"No price data for tickers: {', '.join(missing_prices)}"
+                    else:
+                        print("hello")
+                        prices_df = data_service.filter_date_range(prices_df, 'Date', start_date, end_date)
+                        price_pivot = prices_df.pivot(index='Date', columns='Ticker', values='Close')
+                        mu = mu.loc[price_pivot.columns]  # Ensure order matches price_pivot columns
 
-            returns_df = data_service.get_returns(selected_tickers, start_date, end_date)
+                        optimizer = PortfolioOptimizer()
+                        bounds = [(min_weights.get(t, 0.0), max_weights.get(t, 0.2)) for t in mu.index]
 
-            # Check for missing return data per ticker
-            missing_returns = [t for t in selected_tickers if t and returns_df[returns_df['Ticker'] == t].dropna().empty]
-            if missing_returns:
-                error_message = f"No return data for tickers: {', '.join(missing_returns)}"
-                return render_template(
-                    'unified_portfolio.html',
-                    selected_tickers=selected_tickers,
-                    asset_count=len(selected_tickers),
-                    start_date=start_date,
-                    end_date=end_date,
-                    mu=None,
-                    tr=None,
-                    df_perf=None,
-                    df_alloc=None,
-                    corr_matrix=None,
-                    min_weights=min_weights,
-                    max_weights=max_weights,
-                    target_return=target_return,
-                    target_volatility=target_volatility,
-                    error=error_message
-                )
+                        results, per_asset_metrics = optimizer.run_optimizations(
+                            mu, price_pivot,
+                            bounds=bounds,
+                            risk_free_rate=Config.RISK_FREE_RATE,
+                            target_return=target_return,
+                            target_volatility=target_volatility
+                        )
+                        vol = per_asset_metrics.set_index('Ticker')['Volatility']
+                        sharpe = per_asset_metrics.set_index('Ticker')['Sharpe Ratio']
+                        df_perf, df_alloc = optimizer.compile_results(results)
+                        corr_matrix = PortfolioOptimizer.compute_corr_matrix(price_pivot, '_'.join(sorted(price_pivot.columns)))
+                        # Create efficient frontier plot
+                        ef_returns = np.array([result.expected_return for result in results.values() if isinstance(result, OptimizationResult)])
+                        ef_volatility = np.array([result.volatility for result in results.values() if isinstance(result, OptimizationResult)])
 
-            mu = returns_df.groupby('Ticker')['Annualized Return'].first()
-            tr = returns_df.groupby('Ticker')['Total Return'].first()
-
-            prices_df = data_service.get_prices(selected_tickers, start_date, end_date)
-
-            # Check for missing price data per ticker
-            missing_prices = [t for t in selected_tickers if t and prices_df[prices_df['Ticker'] == t].empty]
-            if missing_prices:
-                error_message = f"No price data for tickers: {', '.join(missing_prices)}"
-                return render_template(
-                    'unified_portfolio.html',
-                    all_tickers=tickers,
-                    selected_tickers=selected_tickers,
-                    asset_count=len(selected_tickers),
-                    start_date=start_date,
-                    end_date=end_date,
-                    mu=None,
-                    tr=None,
-                    df_perf=None,
-                    df_alloc=None,
-                    corr_matrix=None,
-                    min_weights=min_weights,
-                    max_weights=max_weights,
-                    target_return=target_return,
-                    target_volatility=target_volatility,
-                    error=error_message
-                )
-
-            prices_df = data_service.filter_date_range(prices_df, 'Date', start_date, end_date)
-            price_pivot = prices_df.pivot(index='Date', columns='Ticker', values='Close')
-            mu = mu.loc[price_pivot.columns]  # Ensure order matches price_pivot columns
-
-            optimizer = PortfolioOptimizer()
-            bounds = [(min_weights.get(t, 0.0), max_weights.get(t, 0.2)) for t in mu.index]
-
-            results, per_asset_metrics = optimizer.run_optimizations(
-                mu, price_pivot,
-                bounds=bounds,
-                risk_free_rate=Config.RISK_FREE_RATE,
-                target_return=target_return,
-                target_volatility=target_volatility
-            )
-
-            df_perf, df_alloc = optimizer.compile_results(results)
-            corr_matrix = PortfolioOptimizer.compute_corr_matrix(price_pivot, '_'.join(sorted(price_pivot.columns)))
-
-            # Save cache
-            save_cache(cache_key_val, {
-                'mu': mu,
-                'tr': tr,
-                'df_perf': df_perf,
-                'df_alloc': df_alloc,
-                'corr_matrix': corr_matrix
-            })
-
-            return render_template(
-                'unified_portfolio.html',
-                selected_tickers=selected_tickers,
-                asset_count=len(selected_tickers),
-                start_date=start_date,
-                end_date=end_date,
-                mu=mu,
-                tr=tr,
-                df_perf=df_perf,
-                df_alloc=df_alloc,
-                corr_matrix=corr_matrix,
-                min_weights=min_weights,
-                max_weights=max_weights,
-                target_return=target_return,
-                target_volatility=target_volatility
-            )
+                        efficient_frontier_plot = Chart.create_efficient_frontier_plot(
+                            mu, vol, sharpe,
+                            ef_returns, ef_volatility
+                        )
+                        heatmap_plot = Chart.heatmap(selected_tickers)
+                        # Save cache
+                        print("HI")
+                        save_cache(cache_key_val, {
+                            'mu': mu,
+                            'vol': vol,
+                            'sharpe': sharpe,
+                            'df_perf': df_perf,
+                            'df_alloc': df_alloc,
+                            'corr_matrix': corr_matrix,
+                            'efficient_frontier_plot': efficient_frontier_plot,
+                            'heatmap_plot': heatmap_plot
+                        })
+                        context.update({
+                            'mu': mu,
+                            'vol': vol,
+                            'sharpe': sharpe,
+                            'df_perf': df_perf,
+                            'df_alloc': df_alloc,
+                            'corr_matrix': corr_matrix,
+                            'efficient_frontier_plot': efficient_frontier_plot,
+                            'heatmap_plot': heatmap_plot
+                        })
 
         except Exception as e:
-            return f"Internal Server Error: {e}", 500
+            context['error'] = f"Internal Server Error: {e}"
+    return render_template('unified_portfolio.html', **context)
 
-    # GET fallback
-    return render_template(
-        'unified_portfolio.html',
-        selected_tickers=[],
-        asset_count=10,
-        start_date=Config.DEFAULT_START_DATE,
-        end_date=Config.DEFAULT_END_DATE,
-        mu=None,
-        tr=None,
-        df_perf=None,
-        df_alloc=None,
-        corr_matrix=None,
-        target_return=Config.TARGET_RETURN,
-        target_volatility=Config.TARGET_RISK,
-        error=None
-    )
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=8000)
