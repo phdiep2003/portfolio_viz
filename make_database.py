@@ -168,10 +168,11 @@ if __name__ == "__main__":
     # print(f"Dividends: {len(final_div)} records | {final_div['Ticker'].nunique()} tickers")
     # print(final_div.head())
 
-    df_with_sectors = map_tickers_to_sectors('tickers.csv')
-    df_with_sectors.to_csv('tickers_with_sectors.csv', index=False)
-    print(df_with_sectors.head())
-
+    # df_with_sectors = map_tickers_to_sectors('tickers.csv')
+    # df_with_sectors.to_csv('tickers_with_sectors.csv', index=False)
+    # print(df_with_sectors.head())
+    # print(secrets.token_hex(32))
+    sectors = pd.read_parquet('data/tickers_with_sectors.parquet')
+    print(sectors.head())
+    # save_parquet(sectors, 'data/tickers_with_sectors.parquet')
     # for each ticker in tickers, find the corresponding sectors on yfinance
-
-

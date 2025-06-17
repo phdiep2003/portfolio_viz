@@ -1,7 +1,0 @@
-{
-  "python": {
-    "framework": "flask",
-    "startupFile": "startup.py",
-    "appCommandLine": "gunicorn --bind=0.0.0.0 --timeout 600 app:app"
-  }
-}

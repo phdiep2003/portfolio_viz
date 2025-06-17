@@ -13,13 +13,25 @@ import hashlib
 import json, pickle
 import os
 
+
 warnings.filterwarnings("ignore")
 
 app = Flask(__name__)
-app.secret_key = "123459876"  # TODO: Replace with secure secret key in production
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-fallback-key")  # Fallback for local dev
+app.env = os.getenv("FLASK_ENV", "development")  # Default to development if not set
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,  # Limits by IP
+    storage_uri="memory://",  # Default in-memory storage
+    default_limits=["200 per day", "50 per hour"]  # Global limits
+)
 
 prices_df = pd.read_parquet('data/prices.parquet')
-ticker_sector_df = pd.read_csv('tickers_with_sectors.csv')
+ticker_sector_df = pd.read_parquet('data/tickers_with_sectors.csv')
 
 # Assuming the ticker column is named 'ticker' or similar
 unique_tickers = sorted(prices_df['Ticker'].unique())
@@ -422,6 +434,7 @@ def tickers_api():
     return jsonify(matches[:20])  # limit to 20 results
 
 @app.route('/', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
 def unified_portfolio():
     context = {
         'selected_tickers': Config.SAMPLE_TICKERS,
