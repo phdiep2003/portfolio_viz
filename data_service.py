@@ -106,62 +106,107 @@ class ParquetDataService:
         df = df.copy()
         df.index = pd.to_datetime(df.index, errors='coerce')
         return df.loc[(df.index >= start_dt) & (df.index <= end_dt)]
+    
+    def _prepare_price_data(self, tickers, start_date, end_date):
+        prices = self.get_prices(tickers, start_date, end_date)
+        dividends = self.get_dividends(tickers, start_date, end_date).fillna(0)
 
-    def compute_portfolio_value(self, weights: Dict[str, float], start_date: str, end_date: str, rebalance: str = 'monthly') -> pd.Series:
-        # Get tickers and validate weights
+        if prices.empty:
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+        dividends = dividends.reindex(index=prices.index, columns=prices.columns).fillna(0)
+        prev_prices = prices.shift(1)
+        returns = ((prices - prev_prices + dividends) / prev_prices).fillna(0)
+        return prices, dividends, returns
+    
+    def _get_rebalance_dates(self, index, rebalance):
+        if rebalance == 'monthly':
+            return index.to_series().resample('M').first().index
+        elif rebalance == 'weekly':
+            return index.to_series().resample('W-FRI').first().dropna().index.tolist()
+        elif rebalance == 'quarterly':
+            return index.to_series().resample('Q').first().index
+        return [index[0]]
+    
+    def compute_portfolio_nav(self, weights: Dict[str, float], start_date: str, end_date: str, rebalance: str = 'monthly') -> pd.Series:
         tickers = list(weights.keys())
         if not np.isclose(sum(weights.values()), 1.0):
             raise ValueError("Input weights must sum to 1.0")
 
-        # Get price and dividend data
-        prices_pivot = self.get_prices(tickers, start_date, end_date)
-        dividends_pivot = self.get_dividends(tickers, start_date, end_date).fillna(0)
-
-        if prices_pivot.empty:
+        prices, _, returns = self._prepare_price_data(tickers, start_date, end_date)
+        if prices.empty:
             return pd.Series(dtype=float)
 
-        # Align dividend dates with price dates
-        dividends_aligned = dividends_pivot.reindex(index=prices_pivot.index, columns=prices_pivot.columns).fillna(0)
+        rebalance_dates = set(self._get_rebalance_dates(prices.index, rebalance))
 
-        # Calculate daily returns (price + dividend)
-        prev_prices = prices_pivot.shift(1)
-        returns = ((prices_pivot - prev_prices + dividends_aligned) / prev_prices).fillna(0)
+        nav = [100.0]
+        current_weights = np.array([weights[t] for t in tickers])
+        asset_values = current_weights * 100
 
-        # Determine rebalance dates
-        if rebalance == 'monthly':
-            rebalance_dates = prices_pivot.resample('M').first().index
-        elif rebalance == 'weekly':
-            rebalance_dates = prices_pivot.resample('W').first().index
-        elif rebalance == 'quarterly':
-            rebalance_dates = prices_pivot.resample('Q').first().index
-        else:  # no rebalancing
-            rebalance_dates = [prices_pivot.index[0]]
-
-        # Initialize portfolio tracking
-        nav = [100.0]  # Starting value normalized to 100
-        current_weights = np.array([weights[t] for t in tickers])  # Current allocation weights
-        asset_values = current_weights * 100  # Dollar value in each asset
-
-        for i in range(1, len(prices_pivot)):
-            date = prices_pivot.index[i]
-            
-            # Update asset values with today's returns
+        for i in range(1, len(prices)):
+            date = prices.index[i]
             asset_values *= (1 + returns.iloc[i])
-            current_portfolio_value = asset_values.sum()
-            nav.append(current_portfolio_value)
-            
-            # Handle rebalancing
-            if date in rebalance_dates:
-                # Calculate actual weights before rebalancing (for debugging)
-                # actual_weights = asset_values / current_portfolio_value
-                # print(f"\nRebalancing at {date.date()}")
-                # print("Pre-rebalance weights:", {t: f"{w:.2%}" for t, w in zip(tickers, actual_weights)})
-                # print("Target weights:", {t: f"{w:.2%}" for t, w in weights.items()})
-                
-                # Rebalance to target weights
-                asset_values = np.array([weights[t] * current_portfolio_value for t in tickers])
-            
-            # Update current weights for next iteration
-            current_weights = asset_values / current_portfolio_value
+            total_value = asset_values.sum()
+            nav.append(total_value)
 
-        return pd.Series(nav, index=prices_pivot.index)
+            if date in rebalance_dates:
+                asset_values = np.array([weights[t] * total_value for t in tickers])
+
+        return pd.Series(nav, index=prices.index)
+
+
+    def compute_portfolio_weights(self, weights: Dict[str, float], start_date: str, end_date: str, rebalance: str = 'monthly') -> pd.DataFrame:
+        tickers = list(weights.keys())
+        if not np.isclose(sum(weights.values()), 1.0):
+            raise ValueError("Input weights must sum to 1.0")
+
+        prices, _, returns = self._prepare_price_data(tickers, start_date, end_date)
+        if prices.empty:
+            return pd.DataFrame()
+
+        rebalance_dates = set(self._get_rebalance_dates(prices.index, rebalance))
+
+        weights_records = []
+        current_weights = np.array([weights[t] for t in tickers])
+        asset_values = current_weights * 100
+
+        for i in range(1, len(prices)):
+            date = prices.index[i]
+            asset_values *= (1 + returns.iloc[i])
+            total_value = asset_values.sum()
+
+            if date in rebalance_dates:
+                before = asset_values / total_value
+                weights_records.append({
+                    'date': date,
+                    'rebalance_phase': 'before',
+                    **{tickers[j]: before[j] for j in range(len(tickers))}
+                })
+
+                # Rebalance
+                asset_values = np.array([weights[t] * total_value for t in tickers])
+                after = asset_values / total_value
+                weights_records.append({
+                    'date': date,
+                    'rebalance_phase': 'after',
+                    **{tickers[j]: after[j] for j in range(len(tickers))}
+                })
+
+        return pd.DataFrame(weights_records)
+    
+    def _compute_for_strategies(self, strategies, start_date, end_date, rebalance, compute_fn):
+        results = {}
+        for name, wts in strategies.items():
+            results[name] = compute_fn(
+                weights=wts,
+                start_date=start_date,
+                end_date=end_date,
+                rebalance=rebalance
+            )
+        return results
+
+    def compute_navs_for_strategies(self, strategies, start_date, end_date, rebalance):
+        return self._compute_for_strategies(strategies, start_date, end_date, rebalance, self.compute_portfolio_nav)
+
+    def compute_weights_for_strategies(self, strategies, start_date, end_date, rebalance):
+        return self._compute_for_strategies(strategies, start_date, end_date, rebalance, self.compute_portfolio_weights)

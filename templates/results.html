@@ -55,32 +55,29 @@
             <div class="plot-container">
                 {{ heatmap_plot|safe }}
             </div>
-          <h3>Allocation per Strategy</h3>
-          <button class="copy-btn" onclick="copyTable('allocation-table')">Copy 📄</button>
-              <table id="allocation-table">
-                  <thead>
-                      <tr>
-                      {% for col in df_alloc.columns %}
-                          <th>{{ col }}</th>
-                      {% endfor %}
-                      </tr>
-                  </thead>
-                  <tbody>
-                      {% for _, row in df_alloc.iterrows() %}
-                      <tr>
-                          {% for val in row %}
-                          <td>
-                              {% if val is number %}
-                              {{ "%.3f"|format(val) }}
-                              {% else %}
-                              {{ val }}
-                              {% endif %}
-                          </td>
-                          {% endfor %}
-                      </tr>
-                      {% endfor %}
-                  </tbody>
-              </table>
+          <table id="allocation-table">
+            <thead>
+                <tr>
+                <th>Strategy</th>
+                {% for ticker in selected_tickers %}
+                    <th>{{ ticker }}</th>
+                {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for strategy_name, ticker_weights in df_alloc.items() %}
+                <tr>
+                    <td>{{ strategy_name }}</td>
+                    {% for ticker in selected_tickers %}
+                    <td>
+                        {% set val = ticker_weights.get(ticker, 0) %}
+                        {{ "%.3f"|format(val) if val else "0.000" }}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+            </table>
           {% endif %}
       </div>
 
@@ -107,11 +104,24 @@
 
       {% if portfolio_plots %}
         {% for freq, plot_html in portfolio_plots.items() %}
-        <h3 class="mt-5 mb-3">{{ freq.capitalize() }} Portfolio Value Over Time</h3>
         <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;">
             {{ plot_html | safe }}
         </div>
         {% endfor %}
+        <form method="POST" action="{{ url_for('export_weights') }}">
+            <input type="hidden" name="start_date" value="{{ start_date }}">
+            <input type="hidden" name="end_date" value="{{ end_date }}">
+            <input type="hidden" name="target_return" value="{{ target_return }}">
+            <input type="hidden" name="target_volatility" value="{{ target_volatility }}">
+            <input type="hidden" name="selected_tickers" value="{{ selected_tickers | join(',') }}">
+
+            <label for="rebalance">Click to Export Rebalancing Strategies:</label>
+            <select name="rebalance" id="rebalance" required>
+                <option value="weekly">Weekly</option>
+                <option value="monthly" selected>Monthly</option>
+            </select>
+            <button type="submit" class="submit-btn">Download Weights Excel</button>
+        </form>
       {% endif %}
   </div>
 {% endif %}   

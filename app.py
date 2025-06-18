@@ -1,10 +1,12 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_file
 from data_service import ParquetDataService
 from cache_utils import make_cache_key, save_cache, load_cache, cache_exists
 from optimizing import PortfolioOptimizer
 from charting import Chart
 import pandas as pd
+from io import BytesIO
 import os
+import re
 import warnings
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -28,7 +30,7 @@ class Config:
     SAMPLE_TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'MS', 'T', 'XOM','NEM']
     DEFAULT_START_DATE = "2020-01-01"
     DEFAULT_END_DATE = "2025-01-01"
-    RISK_FREE_RATE = 0.03
+    RISK_FREE_RATE = 0.04
     TARGET_RETURN = 0.23
     TARGET_RISK = 0.22
 
@@ -39,6 +41,56 @@ def tickers_api():
     matches = [t for t in all_tickers if t.startswith(q)]
     return jsonify(matches[:20])  # limit to 20 results
 
+@app.route('/export_weights', methods=['POST'])
+def export_weights():
+    try:
+        start_date = request.form.get('start_date')
+        end_date = request.form.get('end_date')
+        rebalance_freq = request.form.get('rebalance')
+        selected_tickers = request.form.get("selected_tickers", "").split(",")
+        # Add these missing values from the form:
+        target_return = float(request.form.get('target_return', 0.05))
+        target_volatility = float(request.form.get('target_volatility', 0.10))
+        # Reconstruct min_weights and max_weights from form
+        min_weights = {}
+        max_weights = {}
+        for i, ticker in enumerate(selected_tickers):
+            min_val = float(request.form.get(f"min_{i}", 0.0)) / 100
+            max_val = float(request.form.get(f"max_{i}", 15.0)) / 100
+            min_weights[ticker] = min_val
+            max_weights[ticker] = max_val
+
+        # Now cache_key will work correctly
+        cache_key_val = make_cache_key(
+            selected_tickers, start_date, end_date,
+            target_return, target_volatility,
+            min_weights, max_weights
+        )
+
+        cached_data = load_cache(cache_key_val)
+        strategies = cached_data['df_alloc']
+        weights_by_strategy = data_service.compute_weights_for_strategies(strategies, start_date, end_date, rebalance=rebalance_freq)
+        if not weights_by_strategy:
+            return "No weight data available for this rebalance frequency.", 400
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            for strategy_name, weights_df in weights_by_strategy.items():
+                clean = re.sub(r'[:\\/?*\[\]]', '', strategy_name)
+                weights_df.to_excel(writer, sheet_name=clean[:31], index=False)
+
+        output.seek(0)
+        filename = f"weights_{rebalance_freq}_{start_date}_to_{end_date}.xlsx"
+
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+    except Exception as e:
+        return f"Error exporting weights: {e}", 500
+    
 @app.route('/', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")
 def unified_portfolio():
@@ -57,7 +109,7 @@ def unified_portfolio():
         'max_weights': {},
         'target_return': Config.TARGET_RETURN,
         'target_volatility': Config.TARGET_RISK,
-        'efficient_frontier_plot': None,  # fixed comma typo here
+        'efficient_frontier_plot': None, 
         'heatmap_plot': None,
         'portfolio_plots': None,
         'error': None
@@ -98,7 +150,9 @@ def unified_portfolio():
                 'target_return': target_return,
                 'target_volatility': target_volatility
             })
-
+            # print(selected_tickers, start_date, end_date,
+            #     target_return, target_volatility,
+            #     min_weights, max_weights)
             cache_key_val = make_cache_key(
                 selected_tickers, start_date, end_date,
                 target_return, target_volatility,
@@ -116,7 +170,7 @@ def unified_portfolio():
                     'corr_matrix': cached_data['corr_matrix'],
                     'efficient_frontier_plot': cached_data['efficient_frontier_plot'],
                     'heatmap_plot': cached_data['heatmap_plot'],
-                    'portfolio_plots': cached_data['portfolio_plots']
+                    'portfolio_plots': cached_data['portfolio_plots'],
                 })
             else:
                 returns_df = data_service.get_returns(selected_tickers, start_date, end_date)
@@ -148,10 +202,9 @@ def unified_portfolio():
                         optimizer = PortfolioOptimizer()
                         bounds = [(min_weights.get(t, 0.0), max_weights.get(t, 0.2)) for t in mu.index]
 
-                        results = optimizer.run_optimizations(
+                        results, newplot = optimizer.run_optimizations(
                             mu, price_pivot,
                             bounds=bounds,
-                            risk_free_rate=Config.RISK_FREE_RATE,
                             target_return=target_return,
                             target_volatility=target_volatility
                         )
@@ -161,38 +214,31 @@ def unified_portfolio():
                         sharpe = (mu - Config.RISK_FREE_RATE) / vol
                         corr_matrix = PortfolioOptimizer.compute_corr_matrix(price_pivot)
 
+                        # print(results)
                         df_perf, df_alloc = optimizer.compile_results(results, Config.RISK_FREE_RATE)
-                        ef_returns = df_perf["Expected Return"].values
-                        ef_volatility = df_perf["Volatility"].values
 
+                        ## Plotting ##
                         chart = Chart(data_service)
-                        efficient_frontier_plot = chart.create_efficient_frontier_plot(
-                            mu, vol, sharpe, ef_returns, ef_volatility
-                        )
                         heatmap_plot = chart.heatmap(tickers_available.tolist())
 
                         strategies = df_alloc.set_index('Strategy').T.to_dict()
                         rebalance_options = ['weekly', 'monthly']
-
                         portfolio_plots = {}
                         for freq in rebalance_options:
-                            portfolio_plots[freq] = chart.plot_portfolios(
-                                strategies=strategies,
-                                start_date=start_date,
-                                end_date=end_date,
-                                rebalance=freq
-                                )
+                            navs = data_service.compute_navs_for_strategies(strategies, start_date, end_date, rebalance=freq)
+                            portfolio_plots[freq] = chart.plot_portfolios(navs, rebalance=freq)
+
                         # Serialize plots to JSON for caching
                         save_cache(cache_key_val, {
                             'mu': mu,
                             'vol': vol,
                             'sharpe': sharpe,
                             'df_perf': df_perf,
-                            'df_alloc': df_alloc,
+                            'df_alloc': strategies,
                             'corr_matrix': corr_matrix,
-                            'efficient_frontier_plot': efficient_frontier_plot,
+                            'efficient_frontier_plot': newplot,
                             'heatmap_plot': heatmap_plot,
-                            'portfolio_plots': portfolio_plots
+                            'portfolio_plots': portfolio_plots,
                         })
 
                         context.update({
@@ -200,19 +246,17 @@ def unified_portfolio():
                             'vol': vol,
                             'sharpe': sharpe,
                             'df_perf': df_perf,
-                            'df_alloc': df_alloc,
+                            'df_alloc': strategies,
                             'corr_matrix': corr_matrix,
-                            'efficient_frontier_plot': efficient_frontier_plot,
+                            'efficient_frontier_plot': newplot,
                             'heatmap_plot': heatmap_plot,
-                            'portfolio_plots': portfolio_plots  # new
+                            'portfolio_plots': portfolio_plots,
                         })
 
         except Exception as e:
             context['error'] = f"Internal Server Error: {e}"
-
     return render_template('unified_portfolio.html', **context)
 
 
 if __name__ == "__main__":
-    # app.run(host='0.0.0.0', port=8000)
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=8000)
