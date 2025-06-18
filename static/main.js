@@ -91,12 +91,76 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => {
       buttons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-
+      
       const freq = btn.getAttribute('data-freq');
       document.querySelectorAll('.portfolio-plot').forEach(div => div.style.display = 'none');
-
+      
       const selectedPlot = document.getElementById(`plot-${freq}`);
       if (selectedPlot) selectedPlot.style.display = 'block';
     });
   });
+});
+function injectPlotlyHTML(containerId, htmlString) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+
+  // Create a temporary wrapper div
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = htmlString;
+
+  // Move all children (including div + script) to the container
+  container.innerHTML = '';
+  while (tempDiv.firstChild) {
+    container.appendChild(tempDiv.firstChild);
+  }
+
+  // Re-execute any script tags
+  const scripts = container.querySelectorAll("script");
+  scripts.forEach((script) => {
+    const newScript = document.createElement("script");
+    if (script.src) {
+      newScript.src = script.src;
+    } else {
+      newScript.textContent = script.textContent;
+    }
+    document.body.appendChild(newScript);
+    document.body.removeChild(newScript);
+  });
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  const container = document.querySelector(".results");
+  if (!container) return;
+
+  const cacheKey = container.dataset.cacheKey;
+  const startDate = container.dataset.startDate;
+  const endDate = container.dataset.endDate;
+
+  function loadPlot(url, targetId) {
+    fetch(url)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.html) {
+          injectPlotlyHTML(targetId, data.html);
+        } else if (data.error) {
+          document.getElementById(targetId).innerHTML = `<p>${data.error}</p>`;
+        } else {
+          document.getElementById(targetId).innerHTML = "<p>Plot data missing.</p>";
+        }
+      })
+      .catch((err) => {
+        const target = document.getElementById(targetId);
+        if (target) target.innerHTML = "<p>Error loading plot.</p>";
+        console.error("Plot load error:", err);
+      });
+  }
+
+  if (cacheKey && startDate && endDate) {
+    loadPlot(`/plot/efficient_frontier?cache_key=${cacheKey}`, "efficient-frontier-container");
+    loadPlot(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=monthly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-monthly");
+    loadPlot(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=weekly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-weekly");
+    loadPlot(`/plot/heatmap?cache_key=${cacheKey}`, "heatmap-container");
+  } else {
+    console.warn("Missing cache key or date range for plots");
+  }
 });

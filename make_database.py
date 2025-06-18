@@ -146,7 +146,9 @@ if __name__ == "__main__":
     # price_df = download_clean_prices(tickers, start=start_date, end=end_date, batch_size=50)
     # print(f"Downloaded {len(price_df)} price records")
     # price_df_load = pd.read_parquet('data/prices.parquet')
-    # print(price_df_load['Ticker'].nunique())
+    # tickers = price_df_load['Ticker'].unique()
+    # pd.DataFrame({'Ticker': sorted(tickers)}).to_parquet('data/available_tickers.parquet', index=False)
+
     # unique_tickers = pd.DataFrame(price_df_load['Ticker'].unique())
     # unique_tickers.to_csv('tickers.csv',index=False)
     # price_df = price_df.merge(price_df_load, on=['Date', 'Ticker'], how='outer', suffixes=('', '_old'))
@@ -192,5 +194,5 @@ if __name__ == "__main__":
 
     # save_pivoted_prices()
     # save_pivoted_dividends()
-    price_df_load = pd.read_parquet('data/prices_pivot.parquet')
+    # price_df_load = pd.read_parquet('data/prices_pivot.parquet')
     dividend_df_load = pd.read_parquet('data/dividends_pivot.parquet')

@@ -3,14 +3,12 @@ from pypfopt.efficient_frontier import EfficientFrontier
 from pypfopt.risk_models import CovarianceShrinkage
 from pypfopt import cla
 import pandas as pd
-from pypfopt import plotting
-import numpy as np
 
 class PortfolioOptimizer:
     @staticmethod
     def compute_corr_matrix(prices: pd.DataFrame) -> pd.DataFrame:
         returns = prices.pct_change().dropna()
-        return returns.corr()
+        return returns.corr().to_dict()
     
     @staticmethod
     def run_optimizations(
@@ -21,47 +19,13 @@ class PortfolioOptimizer:
         target_volatility: float,
     ) -> Tuple[Dict[str, Union[EfficientFrontier, Dict]], Union[str, None]]:
         """Run portfolio optimization strategies and return ef objects and HTML plot."""
-
         cov_matrix = CovarianceShrinkage(prices).ledoit_wolf()
         results = {}
-        fig_html = None  # default value
         try:
             ef_max_sharpe = cla.CLA(mu, cov_matrix, weight_bounds=bounds)
             ef_max_sharpe.max_sharpe()
-            fig = plotting.plot_efficient_frontier(ef_max_sharpe, interactive=True, show_assets=False)
-
-            rets = mu.values
-            risks = np.sqrt(np.diag(cov_matrix))
-            tickers = mu.index.tolist()
-            colors = ['red', 'blue', 'green', 'orange', 'purple', 'cyan', 'magenta'] * (len(tickers) // 7 + 1)
-
-            # Add labeled scatter points
-            fig.add_scatter(
-                x=risks,
-                y=rets,
-                mode='markers+text',
-                text=tickers,
-                textposition='top center',
-                marker=dict(color=colors, size=10, line=dict(width=1, color='black')),
-                name='Assets',
-                hovertemplate=(
-                    "Ticker: %{text}<br>" +
-                    "Return: %{y:.2%}<br>" +
-                    "Risk: %{x:.2%}<extra></extra>"
-                )
-            )
-
-            # Customize layout
-            fig.update_layout(
-                title="Efficient Frontier with Tickers",
-                xaxis_title="Volatility",
-                yaxis_title="Return",
-                hovermode="closest"
-            )
-
-            # Save or return as HTML
-            fig_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
             results["Max Sharpe"] = ef_max_sharpe
+
         except Exception as e:
             print("Plotting error:", e)
             results["Max Sharpe"] = {"Error": str(e)}
@@ -74,13 +38,13 @@ class PortfolioOptimizer:
 
         for name, strategy in strategies.items():
             try:
-                ef = EfficientFrontier(mu.astype(float), cov_matrix, weight_bounds=bounds)
+                ef = EfficientFrontier(mu, cov_matrix, weight_bounds=bounds)
                 strategy(ef)
                 results[name] = ef
             except Exception as e:
                 results[name] = {"Error": str(e)}
         
-        return results, fig_html
+        return results
 
     @staticmethod
     def extract_performance(ef: EfficientFrontier, risk_free_rate: float):
@@ -95,7 +59,6 @@ class PortfolioOptimizer:
 
     @staticmethod
     def compile_results(efs: Dict[str, Union[EfficientFrontier, Dict]], risk_free_rate: float):
-        """Compile performance and allocation tables from ef objects."""
         perf_rows = []
         alloc_rows = []
 
@@ -115,4 +78,12 @@ class PortfolioOptimizer:
             alloc_row.update(perf["Weights"])
             alloc_rows.append(alloc_row)
 
-        return pd.DataFrame(perf_rows), pd.DataFrame(alloc_rows)
+        # Create DataFrames
+        df_perf = pd.DataFrame(perf_rows)
+        df_alloc = pd.DataFrame(alloc_rows).set_index('Strategy').T
+
+        # Convert DataFrames to dictionaries
+        perf_dict = df_perf.to_dict(orient='records')    # List of dicts, one per row
+        alloc_dict = df_alloc.to_dict()                   # Nested dict: {Strategy: {ticker: weight}}
+
+        return perf_dict, alloc_dict

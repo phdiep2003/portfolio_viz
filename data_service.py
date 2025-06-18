@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from functools import lru_cache
+from functools import cached_property
 from typing import List, Dict
 import os
 
@@ -11,13 +11,14 @@ class ParquetDataService:
         self._prices = None
         self._dividends = None
 
-    @property
-    @lru_cache(maxsize=1)
+    @cached_property
     def get_tickers(self):
-        return sorted(self._load_prices().columns.tolist())
+        return pd.read_parquet(
+            'data/available_tickers.parquet',
+            columns=['Ticker']
+        )['Ticker'].dropna().astype(str).str.upper().unique().tolist()
     
-    @property
-    @lru_cache(maxsize=1)
+    @cached_property
     def tickers_with_sectors(self):
         return pd.read_parquet('data/tickers_with_sectors.parquet')
     
@@ -99,13 +100,6 @@ class ParquetDataService:
         df['Annualized Return'] = (1 + df['Total Return']) ** (1 / df['Years']) - 1
         df.set_index('Ticker',inplace=True)
         return df[['Years', 'Total Return', 'Annualized Return']]
-
-    def filter_date_range(self, df: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
-        start_dt = pd.to_datetime(start)
-        end_dt = pd.to_datetime(end)
-        df = df.copy()
-        df.index = pd.to_datetime(df.index, errors='coerce')
-        return df.loc[(df.index >= start_dt) & (df.index <= end_dt)]
     
     def _prepare_price_data(self, tickers, start_date, end_date):
         prices = self.get_prices(tickers, start_date, end_date)

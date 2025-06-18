@@ -1,113 +1,128 @@
-{% if mu is not none and not mu.empty %}
-  <div class="results">
-      <h2>Efficient Frontier</h2>
-        <div class="plot-container">
-            {{ efficient_frontier_plot|safe }}
+{% if cache_key and mu is not none and not mu.empty %}
+    <div class="results"
+        data-cache-key="{{ cache_key }}"
+        data-start-date="{{ start_date }}"
+        data-end-date="{{ end_date }}"
+    >
+    <h2>Efficient Frontier</h2>
+        <div class="plot-container" id="efficient-frontier-container">
+            <p>Loading plot...</p>
         </div>
-      <button class="copy-btn" onclick="copyTable('mu_table')">Copy 📄</button>
-      <table id ="mu_table">
-          <tr><th>Ticker</th><th>Expected Return</th><th>Volatility</th><th>Sharpe Ratio</th></tr>
-          {% for ticker in mu.index %}
-              <tr>
-                  <td>{{ ticker }}</td>
-                  <td>{{ '%.2f'|format(mu[ticker] * 100) }}%</td>
-                  <td>{{ '%.2f'|format(vol[ticker] * 100) }}%</td>
-                  <td>{{ '%.2f'|format(sharpe[ticker]) }}%</td>
-              </tr>
-          {% endfor %}
-      </table>
+    <button class="copy-btn" onclick="copyTable('mu_table')">Copy 📄</button>
+    <table id ="mu_table">
+        <tr><th>Ticker</th><th>Expected Return</th><th>Volatility</th><th>Sharpe Ratio</th></tr>
+        {% for ticker in mu.index %}
+            <tr>
+                <td>{{ ticker }}</td>
+                <td>{{ '%.2f'|format(mu[ticker] * 100) }}%</td>
+                <td>{{ '%.2f'|format(vol[ticker] * 100) }}%</td>
+                <td>{{ '%.2f'|format(sharpe[ticker]) }}%</td>
+            </tr>
+        {% endfor %}
+    </table>
 
-      <h2>Optimized Performance</h2>
-      <div style="overflow-x: auto;">
-          {% if df_perf is not none and not df_perf.empty %}
-          <button class="copy-btn" onclick="copyTable('perf-summary')">Copy 📄</button>
-          <table id="perf-summary">
-                  <thead>
-                      <tr>
-                          {% for col in df_perf.columns %}
-                              <th>{{ col }}</th>
-                          {% endfor %}
-                      </tr>
-                  </thead>
-                  <tbody>
-                      {% for _, row in df_perf.iterrows() %}
-                      <tr>
-                          {% for val in row %}
-                          <td>
-                              {% if val is number %}
-                              {{ "%.3f"|format(val) }}
-                              {% else %}
-                              {{ val }}
-                              {% endif %}
-                          </td>
-                          {% endfor %}
-                      </tr>
-                      {% endfor %}
-                  </tbody>
-              </table>
-          {% endif %}
-      </div>
-
-      <h2>Asset Allocation Analysis</h2>
-      <div style="overflow-x: auto;">
-          {% if df_alloc is not none and not df_perf.empty %}
-          <h3>Sectors Heatmap</h3>
-            <div class="plot-container">
-                {{ heatmap_plot|safe }}
-            </div>
-          <table id="allocation-table">
+    <h2>Optimized Performance</h2>
+        <div style="overflow-x: auto;">
+        {% if perf_dict %}
+        <button class="copy-btn" onclick="copyTable('perf-summary')">Copy 📄</button>
+        <table id="perf-summary">
             <thead>
-                <tr>
-                <th>Strategy</th>
-                {% for ticker in selected_tickers %}
-                    <th>{{ ticker }}</th>
+            <tr>
+                {% for col in perf_dict[0].keys() %}
+                <th>{{ col }}</th>
                 {% endfor %}
-                </tr>
+            </tr>
             </thead>
             <tbody>
-                {% for strategy_name, ticker_weights in df_alloc.items() %}
-                <tr>
-                    <td>{{ strategy_name }}</td>
+            {% for row in perf_dict %}
+            <tr>
+                {% for val in row.values() %}
+                <td>
+                {% if val is number %}
+                    {{ "%.3f"|format(val) }}
+                {% else %}
+                    {{ val }}
+                {% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        </div>
+
+    <h2>Asset Allocation Analysis</h2>
+    <div style="overflow-x: auto;">
+        {% if alloc_dict%}
+            <h3>Sectors Heatmap</h3>
+            <div class="plot-container" id="heatmap-container">
+                <p>Loading heatmap...</p>
+            </div>
+            <table id="allocation-table">
+                <thead>
+                    <tr>
+                    <th>Strategy</th>
                     {% for ticker in selected_tickers %}
-                    <td>
-                        {% set val = ticker_weights.get(ticker, 0) %}
-                        {{ "%.3f"|format(val) if val else "0.000" }}
-                    </td>
+                        <th>{{ ticker }}</th>
+                    {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for strategy_name, ticker_weights in alloc_dict.items() %}
+                    <tr>
+                        <td>{{ strategy_name }}</td>
+                        {% for ticker in selected_tickers %}
+                        <td>
+                            {% set val = ticker_weights.get(ticker, 0) %}
+                            {{ "%.3f"|format(val) if val else "0.000" }}
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                </table>
+        {% endif %}
+    </div>
+
+    <h2>Correlation Matrix</h2>
+        {% if corr_matrix %}
+            <button class="copy-btn" onclick="copyTable('matrix')">Copy 📄</button>
+            <table id="matrix" border="1" cellpadding="5" cellspacing="0">
+                <tr>
+                    <th></th>
+                    {% for col in corr_matrix.keys() %}
+                        <th>{{ col }}</th>
                     {% endfor %}
                 </tr>
+                {% for row_key, row_vals in corr_matrix.items() %}
+                    <tr>
+                        <th>{{ row_key }}</th>
+                        {% for col_key in corr_matrix.keys() %}
+                            <td>
+                                {% set val = row_vals.get(col_key) %}
+                                {% if val is not none %}
+                                    {{ '%.2f'|format(val) }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                    </tr>
                 {% endfor %}
-            </tbody>
             </table>
-          {% endif %}
-      </div>
+        {% else %}
+            <p>No correlation matrix data available.</p>
+        {% endif %}
 
-      <h2>Correlation Matrix</h2>
-      {% if corr_matrix is not none and not corr_matrix.empty %}
-          <button class="copy-btn" onclick="copyTable('matrix')">Copy 📄</button>
-          <table id="matrix">
-              <tr>
-                  <th></th>
-                  {% for col in corr_matrix.columns %}
-                      <th>{{ col }}</th>
-                  {% endfor %}
-              </tr>
-              {% for idx in corr_matrix.index %}
-                  <tr>
-                      <th>{{ idx }}</th>
-                      {% for col in corr_matrix.columns %}
-                          <td>{{ '%.2f'|format(corr_matrix.loc[idx, col]) }}</td>
-                      {% endfor %}
-                  </tr>
-              {% endfor %}
-          </table>
-      {% endif %}
 
-      {% if portfolio_plots %}
-        {% for freq, plot_html in portfolio_plots.items() %}
-        <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;">
-            {{ plot_html | safe }}
+        <h2>Portfolio NAV Plots</h2>
+        <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;" id="nav-plot-monthly">
+            <p>Loading monthly NAV chart...</p>
         </div>
-        {% endfor %}
+        <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;" id="nav-plot-weekly">
+            <p>Loading weekly NAV chart...</p>
+        </div>
         <form method="POST" action="{{ url_for('export_weights') }}">
             <input type="hidden" name="start_date" value="{{ start_date }}">
             <input type="hidden" name="end_date" value="{{ end_date }}">
@@ -122,6 +137,5 @@
             </select>
             <button type="submit" class="submit-btn">Download Weights Excel</button>
         </form>
-      {% endif %}
-  </div>
+    </div>
 {% endif %}   

@@ -39,7 +39,7 @@ def tickers_api():
     q = request.args.get('q', '').upper()
     all_tickers = data_service.get_tickers
     matches = [t for t in all_tickers if t.startswith(q)]
-    return jsonify(matches[:20])  # limit to 20 results
+    return jsonify(matches[:20])
 
 @app.route('/export_weights', methods=['POST'])
 def export_weights():
@@ -61,14 +61,14 @@ def export_weights():
             max_weights[ticker] = max_val
 
         # Now cache_key will work correctly
-        cache_key_val = make_cache_key(
+        cache_key = make_cache_key(
             selected_tickers, start_date, end_date,
             target_return, target_volatility,
             min_weights, max_weights
         )
 
-        cached_data = load_cache(cache_key_val)
-        strategies = cached_data['df_alloc']
+        cached_data = load_cache(cache_key)
+        strategies = cached_data['alloc_dict']
         weights_by_strategy = data_service.compute_weights_for_strategies(strategies, start_date, end_date, rebalance=rebalance_freq)
         if not weights_by_strategy:
             return "No weight data available for this rebalance frequency.", 400
@@ -91,8 +91,64 @@ def export_weights():
     except Exception as e:
         return f"Error exporting weights: {e}", 500
     
+@app.route('/plot/efficient_frontier')
+def plot_efficient_frontier():
+    cache_key = request.args.get("cache_key")
+    if not cache_key or not cache_exists(cache_key):
+        return jsonify({'html': "<p>Cache not found.</p>"}), 400
+
+    cached_data = load_cache(cache_key)
+    fig_html = cached_data.get('efficient_frontier_figure')
+    if not fig_html:
+        return jsonify({'html': "<p>Efficient Frontier plot not cached.</p>"}), 400
+
+    return jsonify({'html': fig_html})
+
+@app.route('/plot/nav_chart')
+def plot_nav_chart():
+    cache_key = request.args.get("cache_key")
+    rebalance = request.args.get("rebalance", "monthly")
+    start_date = request.args.get("start_date")
+    end_date = request.args.get("end_date")
+
+    if not all([cache_key, start_date, end_date]):
+        return jsonify({'html': "<p>Missing required parameters.</p>"}), 400
+
+    if not cache_exists(cache_key):
+        return jsonify({'html': "<p>Cache not found.</p>"}), 400
+
+    cached_data = load_cache(cache_key)
+    portfolio_plots = cached_data.get('portfolio_plots', {})
+    plot_html = portfolio_plots.get(rebalance)
+
+    if not plot_html:
+        return jsonify({'html': "<p>Plot not cached for this rebalance.</p>"}), 400
+
+    return jsonify({'html': plot_html})
+
+@app.route('/plot/heatmap')
+def plot_heatmap():
+    cache_key = request.args.get("cache_key")
+
+    if not cache_key or not cache_exists(cache_key):
+        return jsonify({'html': "<p>Heatmap data not found.</p>"}), 400
+
+    cached_data = load_cache(cache_key)
+    alloc_dict = cached_data.get('alloc_dict')
+
+    if not alloc_dict:
+        return jsonify({'html': "<p>Allocation data missing.</p>"}), 400
+
+    strategy_weights = next(iter(alloc_dict.values()), {})
+    tickers = list(strategy_weights.keys())
+
+    chart = Chart(data_service)
+    fig = chart.heatmap(tickers)
+    return jsonify({'html': fig})
+
+
 @app.route('/', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("10 per minute") 
 def unified_portfolio():
     context = {
         'selected_tickers': Config.SAMPLE_TICKERS,
@@ -102,16 +158,14 @@ def unified_portfolio():
         'mu': None,
         'vol': None,
         'sharpe': None,
-        'df_perf': None,
-        'df_alloc': None,
+        'perf_dict': None,
+        'alloc_dict': None,
         'corr_matrix': None,
         'min_weights': {},
         'max_weights': {},
         'target_return': Config.TARGET_RETURN,
         'target_volatility': Config.TARGET_RISK,
-        'efficient_frontier_plot': None, 
-        'heatmap_plot': None,
-        'portfolio_plots': None,
+        'cache_key': None,
         'error': None
     }
 
@@ -128,15 +182,14 @@ def unified_portfolio():
             max_weights = {}
             for i, ticker in enumerate(selected_tickers):
                 if ticker:
-                    min_value = float(request.form.get(f"min_{i}", 0.0)) / 100
-                    max_value = float(request.form.get(f"max_{i}", 20.0)) / 100
-                    min_weights[ticker] = min_value
-                    max_weights[ticker] = max_value
+                    min_weights[ticker] = float(request.form.get(f"min_{i}", 0.0)) / 100
+                    max_weights[ticker] = float(request.form.get(f"max_{i}", 20.0)) / 100
+
             if target_return < 0 or target_volatility < 0:
                 context['error'] = "Target return and volatility must be positive."
                 return render_template('unified_portfolio.html', **context)
 
-            if any(min_weights[t] > max_weights[t] for t in selected_tickers):
+            if any(min_weights[t] > max_weights[t] for t in selected_tickers if t in min_weights):
                 context['error'] = "Min weight cannot be greater than max weight for any asset."
                 return render_template('unified_portfolio.html', **context)
 
@@ -150,113 +203,103 @@ def unified_portfolio():
                 'target_return': target_return,
                 'target_volatility': target_volatility
             })
-            # print(selected_tickers, start_date, end_date,
-            #     target_return, target_volatility,
-            #     min_weights, max_weights)
-            cache_key_val = make_cache_key(
+
+            cache_key = make_cache_key(
                 selected_tickers, start_date, end_date,
                 target_return, target_volatility,
                 min_weights, max_weights
             )
 
-            if cache_exists(cache_key_val):
-                cached_data = load_cache(cache_key_val)
+            if cache_exists(cache_key):
+                cached_data = load_cache(cache_key)
                 context.update({
-                    'mu': cached_data['mu'],
-                    'vol': cached_data['vol'],
-                    'sharpe': cached_data['sharpe'],
-                    'df_perf': cached_data['df_perf'],
-                    'df_alloc': cached_data['df_alloc'],
+                    'perf_dict': cached_data['perf_dict'],
+                    'alloc_dict': cached_data['alloc_dict'],
                     'corr_matrix': cached_data['corr_matrix'],
-                    'efficient_frontier_plot': cached_data['efficient_frontier_plot'],
-                    'heatmap_plot': cached_data['heatmap_plot'],
-                    'portfolio_plots': cached_data['portfolio_plots'],
+                    'mu': cached_data.get('mu'),
+                    'vol': cached_data.get('vol'),
+                    'sharpe': cached_data.get('sharpe'),
+                    'cache_key': cache_key  # Important for JS lazy-loading
                 })
-            else:
-                returns_df = data_service.get_returns(selected_tickers, start_date, end_date)
-                # Find tickers missing return data or with empty Annualized Return
-                missing_returns = [t for t in selected_tickers if t not in returns_df.index or pd.isna(returns_df.loc[t, 'Annualized Return'])]
+                return render_template('unified_portfolio.html', **context)
 
-                if missing_returns:
-                    context['error'] = f"No return data for tickers: {', '.join(missing_returns)}"
-                else:
-                    # Select mu as Series of Annualized Returns indexed by ticker
-                    mu = returns_df.loc[selected_tickers, 'Annualized Return']
+            # Compute everything from scratch
+            returns_df = data_service.get_returns(selected_tickers, start_date, end_date)
+            missing_returns = [t for t in selected_tickers if t not in returns_df.index or pd.isna(returns_df.loc[t, 'Annualized Return'])]
 
-                    # Get price data
-                    prices_df = data_service.get_prices(selected_tickers, start_date, end_date)
+            if missing_returns:
+                context['error'] = f"No return data for tickers: {', '.join(missing_returns)}"
+                return render_template('unified_portfolio.html', **context)
 
-                    # Check for missing price data (column missing or all NaN)
-                    missing_prices = [t for t in selected_tickers if t not in prices_df.columns or prices_df[t].dropna().empty]
-                    if missing_prices:
-                        context['error'] = f"No price data for tickers: {', '.join(missing_prices)}"
-                    else:
-                        # Filter prices by date range
-                        price_pivot = data_service.filter_date_range(prices_df, start_date, end_date)
+            mu = returns_df.loc[selected_tickers, 'Annualized Return']
+            prices_df = data_service.get_prices(selected_tickers, start_date, end_date)
+            missing_prices = [t for t in selected_tickers if t not in prices_df.columns or prices_df[t].dropna().empty]
+            if missing_prices:
+                context['error'] = f"No price data for tickers: {', '.join(missing_prices)}"
+                return render_template('unified_portfolio.html', **context)
 
-                        # Align mu and price_pivot columns
-                        tickers_available = price_pivot.columns.intersection(mu.index)
-                        mu = mu.loc[tickers_available]
-                        price_pivot = price_pivot[tickers_available]
+            tickers_available = prices_df.columns.intersection(mu.index)
+            mu = mu.loc[tickers_available]
+            prices_df = prices_df[tickers_available]
 
-                        optimizer = PortfolioOptimizer()
-                        bounds = [(min_weights.get(t, 0.0), max_weights.get(t, 0.2)) for t in mu.index]
+            bounds = [(min_weights.get(t, 0.0), max_weights.get(t, 0.2)) for t in mu.index]
+            optimizer = PortfolioOptimizer()
+            results = optimizer.run_optimizations(
+                mu, prices_df,
+                bounds=bounds,
+                target_return=target_return,
+                target_volatility=target_volatility
+            )
+            ef_max_sharpe = results["Max Sharpe"]
+            daily_returns = prices_df.pct_change().dropna()
+            vol = daily_returns.std() * (252 ** 0.5)
+            sharpe = (mu - Config.RISK_FREE_RATE) / vol
 
-                        results, newplot = optimizer.run_optimizations(
-                            mu, price_pivot,
-                            bounds=bounds,
-                            target_return=target_return,
-                            target_volatility=target_volatility
-                        )
+            
+            corr_matrix = PortfolioOptimizer.compute_corr_matrix(prices_df)
 
-                        daily_returns = price_pivot.pct_change().dropna()
-                        vol = daily_returns.std() * (252 ** 0.5)
-                        sharpe = (mu - Config.RISK_FREE_RATE) / vol
-                        corr_matrix = PortfolioOptimizer.compute_corr_matrix(price_pivot)
+            perf_dict, alloc_dict = optimizer.compile_results(results, Config.RISK_FREE_RATE)
 
-                        # print(results)
-                        df_perf, df_alloc = optimizer.compile_results(results, Config.RISK_FREE_RATE)
+            chart = Chart(data_service)
+            ef_frontier = chart.plot_efficient_frontier(ef_max_sharpe, mu,vol)
+            heatmap_plot = chart.heatmap(tickers_available.tolist())
 
-                        ## Plotting ##
-                        chart = Chart(data_service)
-                        heatmap_plot = chart.heatmap(tickers_available.tolist())
-
-                        strategies = df_alloc.set_index('Strategy').T.to_dict()
-                        rebalance_options = ['weekly', 'monthly']
-                        portfolio_plots = {}
-                        for freq in rebalance_options:
-                            navs = data_service.compute_navs_for_strategies(strategies, start_date, end_date, rebalance=freq)
-                            portfolio_plots[freq] = chart.plot_portfolios(navs, rebalance=freq)
-
-                        # Serialize plots to JSON for caching
-                        save_cache(cache_key_val, {
-                            'mu': mu,
-                            'vol': vol,
-                            'sharpe': sharpe,
-                            'df_perf': df_perf,
-                            'df_alloc': strategies,
-                            'corr_matrix': corr_matrix,
-                            'efficient_frontier_plot': newplot,
-                            'heatmap_plot': heatmap_plot,
-                            'portfolio_plots': portfolio_plots,
-                        })
-
-                        context.update({
-                            'mu': mu,
-                            'vol': vol,
-                            'sharpe': sharpe,
-                            'df_perf': df_perf,
-                            'df_alloc': strategies,
-                            'corr_matrix': corr_matrix,
-                            'efficient_frontier_plot': newplot,
-                            'heatmap_plot': heatmap_plot,
-                            'portfolio_plots': portfolio_plots,
-                        })
+            portfolio_plots = {}
+            for freq in ['weekly', 'monthly']:
+                navs = data_service.compute_navs_for_strategies(alloc_dict, start_date, end_date, rebalance=freq)
+                portfolio_plots[freq] = chart.plot_portfolios(navs, rebalance=freq)
+            
+            # Save to cache
+            save_cache(cache_key, {
+                'mu': mu,
+                'vol': vol,
+                'sharpe': sharpe,
+                'perf_dict': perf_dict,
+                'alloc_dict': alloc_dict,
+                'corr_matrix': corr_matrix,
+                'efficient_frontier_figure': ef_frontier,
+                'heatmap_figure': heatmap_plot,
+                'portfolio_plots': portfolio_plots,
+            })
+            context.update({
+                'mu': mu,
+                'vol': vol,
+                'sharpe': sharpe,
+                'perf_dict': perf_dict,
+                'alloc_dict': alloc_dict,
+                'corr_matrix': corr_matrix,
+                'cache_key': cache_key,
+            })
 
         except Exception as e:
             context['error'] = f"Internal Server Error: {e}"
+
     return render_template('unified_portfolio.html', **context)
 
+@app.route('/health')
+def health():
+    return 'OK', 200
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=8000)
+    # app.run(host='0.0.0.0', port=8000)
+    app.run(debug=True)
