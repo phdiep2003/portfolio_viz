@@ -104,5 +104,14 @@
               {% endfor %}
           </table>
       {% endif %}
+
+      {% if portfolio_plots %}
+        {% for freq, plot_html in portfolio_plots.items() %}
+        <h3 class="mt-5 mb-3">{{ freq.capitalize() }} Portfolio Value Over Time</h3>
+        <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;">
+            {{ plot_html | safe }}
+        </div>
+        {% endfor %}
+      {% endif %}
   </div>
 {% endif %}   

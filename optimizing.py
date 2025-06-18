@@ -19,7 +19,6 @@ class PortfolioOptimizer:
         target_volatility: float,
     ) -> Dict[str, Union[EfficientFrontier, Dict]]:
         """Run portfolio optimization strategies, return ef objects or error info."""
-        prices = prices.dropna()
         cov_matrix = CovarianceShrinkage(prices).ledoit_wolf()
         results = {}
 

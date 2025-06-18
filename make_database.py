@@ -121,6 +121,18 @@ def map_tickers_to_sectors(csv_path):
     
     return tickers_df
 
+
+def save_pivoted_prices(output_path: str = "data/prices_pivot.parquet"):
+    df = pd.read_parquet('data/prices.parquet')
+    pivot = df.pivot(index="Date", columns="Ticker", values="Close").sort_index()
+    pivot.to_parquet(output_path)
+
+def save_pivoted_dividends(output_path: str = "data/dividends_pivot.parquet"):
+    df = pd.read_parquet('data/dividends.parquet')
+    if not df.empty:
+        pivot = df.pivot(index="ExDate", columns="Ticker", values="Dividend").sort_index()
+        pivot.to_parquet(output_path)
+
 if __name__ == "__main__":
     # === CONFIG ===
     # with open('tickers.txt', 'r') as f:
@@ -134,6 +146,7 @@ if __name__ == "__main__":
     # price_df = download_clean_prices(tickers, start=start_date, end=end_date, batch_size=50)
     # print(f"Downloaded {len(price_df)} price records")
     # price_df_load = pd.read_parquet('data/prices.parquet')
+    # print(price_df_load['Ticker'].nunique())
     # unique_tickers = pd.DataFrame(price_df_load['Ticker'].unique())
     # unique_tickers.to_csv('tickers.csv',index=False)
     # price_df = price_df.merge(price_df_load, on=['Date', 'Ticker'], how='outer', suffixes=('', '_old'))
@@ -172,7 +185,12 @@ if __name__ == "__main__":
     # df_with_sectors.to_csv('tickers_with_sectors.csv', index=False)
     # print(df_with_sectors.head())
     # print(secrets.token_hex(32))
-    sectors = pd.read_parquet('data/tickers_with_sectors.parquet')
-    print(sectors.head())
+    # sectors = pd.read_parquet('data/tickers_with_sectors.parquet')
+    # print(sectors.head())
     # save_parquet(sectors, 'data/tickers_with_sectors.parquet')
     # for each ticker in tickers, find the corresponding sectors on yfinance
+
+    # save_pivoted_prices()
+    # save_pivoted_dividends()
+    price_df_load = pd.read_parquet('data/prices_pivot.parquet')
+    dividend_df_load = pd.read_parquet('data/dividends_pivot.parquet')

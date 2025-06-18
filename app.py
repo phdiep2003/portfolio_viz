@@ -3,6 +3,7 @@ from data_service import ParquetDataService
 from cache_utils import make_cache_key, save_cache, load_cache, cache_exists
 from optimizing import PortfolioOptimizer
 from charting import Chart
+import pandas as pd
 import os
 import warnings
 from flask_limiter import Limiter
@@ -34,7 +35,7 @@ class Config:
 @app.route('/api/tickers')
 def tickers_api():
     q = request.args.get('q', '').upper()
-    all_tickers = data_service.get_tickers()
+    all_tickers = data_service.get_tickers
     matches = [t for t in all_tickers if t.startswith(q)]
     return jsonify(matches[:20])  # limit to 20 results
 
@@ -47,8 +48,6 @@ def unified_portfolio():
         'start_date': Config.DEFAULT_START_DATE,
         'end_date': Config.DEFAULT_END_DATE,
         'mu': None,
-        'efficient_frontier_plot': None,  # fixed comma typo here
-        'heatmap_plot': None,
         'vol': None,
         'sharpe': None,
         'df_perf': None,
@@ -58,6 +57,9 @@ def unified_portfolio():
         'max_weights': {},
         'target_return': Config.TARGET_RETURN,
         'target_volatility': Config.TARGET_RISK,
+        'efficient_frontier_plot': None,  # fixed comma typo here
+        'heatmap_plot': None,
+        'portfolio_plots': None,
         'error': None
     }
 
@@ -113,27 +115,39 @@ def unified_portfolio():
                     'df_alloc': cached_data['df_alloc'],
                     'corr_matrix': cached_data['corr_matrix'],
                     'efficient_frontier_plot': cached_data['efficient_frontier_plot'],
-                    'heatmap_plot': cached_data['heatmap_plot']
+                    'heatmap_plot': cached_data['heatmap_plot'],
+                    'portfolio_plots': cached_data['portfolio_plots']
                 })
             else:
                 returns_df = data_service.get_returns(selected_tickers, start_date, end_date)
-                missing_returns = [t for t in selected_tickers if t and returns_df[returns_df['Ticker'] == t].dropna().empty]
+                # Find tickers missing return data or with empty Annualized Return
+                missing_returns = [t for t in selected_tickers if t not in returns_df.index or pd.isna(returns_df.loc[t, 'Annualized Return'])]
+
                 if missing_returns:
                     context['error'] = f"No return data for tickers: {', '.join(missing_returns)}"
                 else:
-                    mu = returns_df.groupby('Ticker')['Annualized Return'].first()
+                    # Select mu as Series of Annualized Returns indexed by ticker
+                    mu = returns_df.loc[selected_tickers, 'Annualized Return']
+
+                    # Get price data
                     prices_df = data_service.get_prices(selected_tickers, start_date, end_date)
 
-                    missing_prices = [t for t in selected_tickers if t and prices_df[prices_df['Ticker'] == t].empty]
+                    # Check for missing price data (column missing or all NaN)
+                    missing_prices = [t for t in selected_tickers if t not in prices_df.columns or prices_df[t].dropna().empty]
                     if missing_prices:
                         context['error'] = f"No price data for tickers: {', '.join(missing_prices)}"
                     else:
-                        prices_df = data_service.filter_date_range(prices_df, 'Date', start_date, end_date)
-                        price_pivot = prices_df.pivot(index='Date', columns='Ticker', values='Close')
-                        mu = mu.loc[price_pivot.columns]
+                        # Filter prices by date range
+                        price_pivot = data_service.filter_date_range(prices_df, start_date, end_date)
+
+                        # Align mu and price_pivot columns
+                        tickers_available = price_pivot.columns.intersection(mu.index)
+                        mu = mu.loc[tickers_available]
+                        price_pivot = price_pivot[tickers_available]
 
                         optimizer = PortfolioOptimizer()
                         bounds = [(min_weights.get(t, 0.0), max_weights.get(t, 0.2)) for t in mu.index]
+
                         results = optimizer.run_optimizations(
                             mu, price_pivot,
                             bounds=bounds,
@@ -146,15 +160,28 @@ def unified_portfolio():
                         vol = daily_returns.std() * (252 ** 0.5)
                         sharpe = (mu - Config.RISK_FREE_RATE) / vol
                         corr_matrix = PortfolioOptimizer.compute_corr_matrix(price_pivot)
-                        df_perf, df_alloc = optimizer.compile_results(results, Config.RISK_FREE_RATE)
 
+                        df_perf, df_alloc = optimizer.compile_results(results, Config.RISK_FREE_RATE)
                         ef_returns = df_perf["Expected Return"].values
                         ef_volatility = df_perf["Volatility"].values
 
-                        efficient_frontier_plot = Chart.create_efficient_frontier_plot(
+                        chart = Chart(data_service)
+                        efficient_frontier_plot = chart.create_efficient_frontier_plot(
                             mu, vol, sharpe, ef_returns, ef_volatility
                         )
-                        heatmap_plot = Chart.heatmap(selected_tickers)
+                        heatmap_plot = chart.heatmap(tickers_available.tolist())
+
+                        strategies = df_alloc.set_index('Strategy').T.to_dict()
+                        rebalance_options = ['weekly', 'monthly']
+
+                        portfolio_plots = {}
+                        for freq in rebalance_options:
+                            portfolio_plots[freq] = chart.plot_portfolios(
+                                strategies=strategies,
+                                start_date=start_date,
+                                end_date=end_date,
+                                rebalance=freq
+                                )
                         # Serialize plots to JSON for caching
                         save_cache(cache_key_val, {
                             'mu': mu,
@@ -164,7 +191,8 @@ def unified_portfolio():
                             'df_alloc': df_alloc,
                             'corr_matrix': corr_matrix,
                             'efficient_frontier_plot': efficient_frontier_plot,
-                            'heatmap_plot': heatmap_plot
+                            'heatmap_plot': heatmap_plot,
+                            'portfolio_plots': portfolio_plots
                         })
 
                         context.update({
@@ -175,7 +203,8 @@ def unified_portfolio():
                             'df_alloc': df_alloc,
                             'corr_matrix': corr_matrix,
                             'efficient_frontier_plot': efficient_frontier_plot,
-                            'heatmap_plot': heatmap_plot
+                            'heatmap_plot': heatmap_plot,
+                            'portfolio_plots': portfolio_plots  # new
                         })
 
         except Exception as e:

@@ -5,6 +5,9 @@ import numpy as np
 from data_service import ParquetDataService
 
 class Chart:
+    def __init__(self, data_service=None):
+        self.data_service = data_service or ParquetDataService()
+
     @staticmethod
     def create_efficient_frontier_plot(mu, vol, sharpe, ef_returns, ef_volatility):
         """
@@ -132,66 +135,73 @@ class Chart:
         
         return fig.to_html(full_html=False, include_plotlyjs='cdn')
     
-    @staticmethod
-    def heatmap(selected_tickers):
-        data_service = ParquetDataService()
-        ticker_sector_df = data_service.tickers_with_sectors
+    def heatmap(self, selected_tickers):
+        ticker_sector_df = self.data_service.tickers_with_sectors
         filtered_df = ticker_sector_df[ticker_sector_df['Ticker'].isin(selected_tickers)].copy()
-        
-        # Create equal weights for uniform box sizes
         filtered_df['Weight'] = 1
-        
-        # Create color mapping for sectors only
+
         unique_sectors = filtered_df['Sector'].unique()
         sector_colors = px.colors.qualitative.G10[:len(unique_sectors)]
         color_map = dict(zip(unique_sectors, sector_colors))
-        
-        # Create the treemap with all boxes initially white
-        fig = px.treemap(
-            filtered_df,
-            path=['Sector', 'Ticker'],
-            values='Weight',
-            color_discrete_sequence=['white']  # Start with all white
-        )
-        
-        # Custom coloring - only color the sector (parent) boxes
+
+        fig = px.treemap(filtered_df, path=['Sector', 'Ticker'], values='Weight', color_discrete_sequence=['white'])
+
         colors = []
         text_colors = []
         for label, parent in zip(fig.data[0].labels, fig.data[0].parents):
-            if parent == '':  # This is a sector box
+            if parent == '':
                 colors.append(color_map[label])
-                text_colors.append('white')  # White text for colored sectors
-            else:  # This is a stock box
+                text_colors.append('white')
+            else:
                 colors.append('white')
-                text_colors.append('black')  # Black text for white stocks
-        
-        # Apply custom styling
+                text_colors.append('black')
+
         fig.update_traces(
             marker_colors=colors,
             textfont_color=text_colors,
             textinfo="label",
             textposition="middle center",
             textfont=dict(size=16),
-            marker=dict(
-                line=dict(width=1, color="darkgray")
-            ),
+            marker=dict(line=dict(width=1, color="darkgray")),
             hovertemplate='<b>%{label}</b><br>Sector: %{parent}<extra></extra>',
             branchvalues='total',
-            tiling=dict(
-                packing='squarify',
-                squarifyratio=1  # More uniform box sizes
-            )
+            tiling=dict(packing='squarify', squarifyratio=1)
         )
-        
+
         fig.update_layout(
             margin=dict(t=30, l=0, r=0, b=10),
             paper_bgcolor="white",
             plot_bgcolor="white",
-            uniformtext=dict(
-                minsize=12,
-                mode='hide'
-            ),
+            uniformtext=dict(minsize=12, mode='hide'),
             showlegend=False
         )
-        
-        return fig.to_html(full_html=False, include_plotlyjs='cdn') 
+
+        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+    
+    def plot_portfolios(self, strategies, start_date, end_date, rebalance='monthly'):
+        fig = go.Figure()
+
+        for name, weights in strategies.items():
+            nav = self.data_service.compute_portfolio_value(
+                weights=weights,
+                start_date=start_date,
+                end_date=end_date,
+                rebalance=rebalance
+            )
+            fig.add_trace(go.Scatter(
+                x=nav.index,
+                y=nav,
+                mode='lines',
+                name=name
+            ))
+
+        fig.update_layout(
+            title=f'Portfolio Performance ({rebalance.capitalize()} Rebalancing)',
+            xaxis_title='Date',
+            yaxis_title='Portfolio Value (Normalized to 100)',
+            template='plotly_white',
+            height=500,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+
+        return fig.to_html(full_html=False, include_plotlyjs='cdn')

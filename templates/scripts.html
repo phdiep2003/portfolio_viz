@@ -93,4 +93,24 @@
   }
 </script>
 
+<script>
+  const buttons = document.querySelectorAll('.btn-group button');
+  buttons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Remove active class from all buttons
+      buttons.forEach(b => b.classList.remove('active'));
+      // Add active to clicked button
+      btn.classList.add('active');
+
+      const freq = btn.getAttribute('data-freq');
+
+      // Hide all plots
+      document.querySelectorAll('.portfolio-plot').forEach(div => div.style.display = 'none');
+
+      // Show selected plot
+      const selectedPlot = document.getElementById(`plot-${freq}`);
+      if (selectedPlot) selectedPlot.style.display = 'block';
+    });
+  });
+</script>
 
