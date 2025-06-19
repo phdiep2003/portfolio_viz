@@ -37,6 +37,15 @@ $(document).ready(function () {
   $('.ticker-input').each(function () {
     initializeAutocomplete(this);
   });
+
+  // ✅ SAFE SUBMIT HANDLING HERE
+  $('form').on('submit', function () {
+    const btn = this.querySelector('.submit-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Running...';
+    }
+  });
 });
 
 // --- Dynamically Add New Asset Row ---
@@ -84,83 +93,79 @@ function copyTable(tableId) {
     .catch(err => alert("Failed to copy: " + err));
 }
 
-// --- Toggle Portfolio Plot Tabs ---
-document.addEventListener('DOMContentLoaded', () => {
-  const buttons = document.querySelectorAll('.btn-group button');
-  buttons.forEach(btn => {
-    btn.addEventListener('click', () => {
-      buttons.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      
-      const freq = btn.getAttribute('data-freq');
-      document.querySelectorAll('.portfolio-plot').forEach(div => div.style.display = 'none');
-      
-      const selectedPlot = document.getElementById(`plot-${freq}`);
-      if (selectedPlot) selectedPlot.style.display = 'block';
-    });
-  });
-});
-function injectPlotlyHTML(containerId, htmlString) {
+// --- Plotly JSON Plot Loader ---
+function loadPlotJson(url, containerId) {
   const container = document.getElementById(containerId);
-  if (!container) return;
+  if (!container) return Promise.resolve(); // so Promise.all doesn't fail
 
-  // Create a temporary wrapper div
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = htmlString;
+  return fetch(url)
+    .then(res => res.json())
+    .then(data => {
+      console.log("Plot data received for", containerId, data);
+      if (data.error) {
+        container.innerHTML = `<p>${data.error}</p>`;
+        return;
+      }
 
-  // Move all children (including div + script) to the container
-  container.innerHTML = '';
-  while (tempDiv.firstChild) {
-    container.appendChild(tempDiv.firstChild);
+      if (data.data && data.layout) {
+        const hasPlot = container.classList.contains("js-plotly-plot");
+        const plotFunc = hasPlot ? Plotly.react : Plotly.newPlot;
+        return plotFunc(container, data.data, data.layout, { responsive: true });
+      } else {
+        container.innerHTML = "<p>Plot data missing.</p>";
+      }
+    })
+    .catch(err => {
+      container.innerHTML = "<p>Error loading plot.</p>";
+      console.error("Plot load error:", err);
+    });
+}
+// --- Toggle Portfolio Plot Tabs ---
+document.addEventListener("DOMContentLoaded", async () => {
+  const container = document.querySelector(".results");
+  if (!container) {
+    console.warn("No results container found, skipping plot loading.");
+    return;
   }
 
-  // Re-execute any script tags
-  const scripts = container.querySelectorAll("script");
-  scripts.forEach((script) => {
-    const newScript = document.createElement("script");
-    if (script.src) {
-      newScript.src = script.src;
-    } else {
-      newScript.textContent = script.textContent;
-    }
-    document.body.appendChild(newScript);
-    document.body.removeChild(newScript);
-  });
-}
-
-document.addEventListener("DOMContentLoaded", function () {
-  const container = document.querySelector(".results");
-  if (!container) return;
+  // Hide while loading
+  container.style.visibility = "hidden";
 
   const cacheKey = container.dataset.cacheKey;
   const startDate = container.dataset.startDate;
   const endDate = container.dataset.endDate;
 
-  function loadPlot(url, targetId) {
-    fetch(url)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.html) {
-          injectPlotlyHTML(targetId, data.html);
-        } else if (data.error) {
-          document.getElementById(targetId).innerHTML = `<p>${data.error}</p>`;
-        } else {
-          document.getElementById(targetId).innerHTML = "<p>Plot data missing.</p>";
-        }
-      })
-      .catch((err) => {
-        const target = document.getElementById(targetId);
-        if (target) target.innerHTML = "<p>Error loading plot.</p>";
-        console.error("Plot load error:", err);
-      });
+  if (!(cacheKey && startDate && endDate)) {
+    console.warn("Missing cache key or date range for plots.");
+    return;
   }
 
-  if (cacheKey && startDate && endDate) {
-    loadPlot(`/plot/efficient_frontier?cache_key=${cacheKey}`, "efficient-frontier-container");
-    loadPlot(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=monthly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-monthly");
-    loadPlot(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=weekly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-weekly");
-    loadPlot(`/plot/heatmap?cache_key=${cacheKey}`, "heatmap-container");
-  } else {
-    console.warn("Missing cache key or date range for plots");
+  try {
+    await Promise.all([
+      loadPlotJson(`/plot/efficient_frontier?cache_key=${cacheKey}`, "efficient-frontier-container"),
+      loadPlotJson(`/plot/heatmap?cache_key=${cacheKey}`, "heatmap-container"),
+      loadPlotJson(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=monthly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-monthly")
+      // loadPlotJson(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=weekly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-weekly")
+    ]);
+
+    console.log("All plots loaded successfully");
+    container.style.visibility = "visible";  // Show after all plots are ready
+  } catch (err) {
+    console.error("Error loading plots:", err);
+    container.style.visibility = "visible"; // Still show to let error messages appear
   }
+
+  // Setup toggle buttons
+  const freqButtons = document.querySelectorAll('.btn-group button');
+  freqButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      freqButtons.forEach(b => b.classList.remove('active'));
+      button.classList.add('active');
+
+      const freq = button.getAttribute('data-freq');
+      document.querySelectorAll('.portfolio-plot').forEach(div => div.style.display = 'none');
+      const selectedPlot = document.getElementById(`plot-${freq}`);
+      if (selectedPlot) selectedPlot.style.display = 'block';
+    });
+  });
 });

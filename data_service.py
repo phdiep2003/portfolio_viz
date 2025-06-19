@@ -3,6 +3,27 @@ import numpy as np
 from functools import cached_property
 from typing import List, Dict
 import os
+from numba import njit
+
+@njit
+def nav_jit(returns, weights, rebalance_flags):
+    T = returns.shape[0]
+    nav = np.empty(T)
+    nav[0] = 100.0
+    asset_vals = weights * 100
+
+    for t in range(1, T):
+        asset_vals *= (1 + returns[t])
+        total_val = 0.0
+        for i in range(asset_vals.shape[0]):
+            total_val += asset_vals[i]
+        nav[t] = total_val
+
+        if rebalance_flags[t]:
+            for i in range(asset_vals.shape[0]):
+                asset_vals[i] = weights[i] * total_val
+
+    return nav
 
 class ParquetDataService:
     def __init__(self, price_path="data/prices_pivot.parquet", dividend_path="data/dividends_pivot.parquet"):
@@ -39,7 +60,21 @@ class ParquetDataService:
 
     def get_prices(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         df = self._load_prices()
-        return df.loc[start_date:end_date, tickers]
+        df_slice = df.loc[start_date:end_date, tickers]
+
+        if df_slice.empty or len(df_slice) < 10:
+            raise ValueError(
+                "Available data range is 2015–2025. "
+                "Need more? Please hire me as your investment analyst!"
+                "hungphatdiep03@gmail.com +974 3063-6181"
+            )
+
+        last_row = df_slice.iloc[-1]
+        missing_at_end = last_row[last_row.isna()].index.tolist()
+
+        if missing_at_end:
+            raise ValueError(f"The following tickers have no data at the end of the selected range: {missing_at_end}")
+        return df_slice
 
     def get_dividends(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         df = self._load_dividends()
@@ -64,9 +99,8 @@ class ParquetDataService:
             return pd.DataFrame()
 
         end_dt = pd.to_datetime(end_date)
-        start_prices = prices.ffill().iloc[0]
+        start_prices = prices.ffill().bfill().iloc[0]
         end_prices = prices.ffill().iloc[-1]
-
         df = pd.DataFrame({
             'Ticker': tickers,
             'Close_Start': start_prices[tickers].values,
@@ -87,14 +121,14 @@ class ParquetDataService:
                 reinvested = pd.DataFrame(reinvested_values, index=divs.index, columns=divs.columns)
                 reinvested_sum = reinvested.sum()
 
-                reinvested_sum_full = pd.Series(0, index=tickers)
+                reinvested_sum_full = pd.Series(0.0, index=tickers)
                 reinvested_sum_full.update(reinvested_sum)
             else:
-                reinvested_sum_full = pd.Series(0, index=tickers)
+                reinvested_sum_full = pd.Series(0.0, index=tickers)
         else:
-            reinvested_sum_full = pd.Series(0, index=tickers)
-        df['Reinvested'] = df['Ticker'].map(reinvested_sum_full.to_dict())
+            reinvested_sum_full = pd.Series(0.0, index=tickers)
 
+        df['Reinvested'] = [reinvested_sum_full[t] for t in df['Ticker']]
         df['Years'] = (end_dt - prices.index[0]).days / 365.25
         df['Total Return'] = ((df['Close_End'] + df['Reinvested']) / df['Close_Start']) - 1
         df['Annualized Return'] = (1 + df['Total Return']) ** (1 / df['Years']) - 1
@@ -112,10 +146,10 @@ class ParquetDataService:
         prev_prices = prices.shift(1)
         returns = ((prices - prev_prices + dividends) / prev_prices).fillna(0)
         return prices, dividends, returns
-    
+   
     def _get_rebalance_dates(self, index, rebalance):
         if rebalance == 'monthly':
-            return index.to_series().resample('M').first().index
+            return index.to_series().resample('ME').first().index
         elif rebalance == 'weekly':
             return index.to_series().resample('W-FRI').first().dropna().index.tolist()
         elif rebalance == 'quarterly':
@@ -124,29 +158,20 @@ class ParquetDataService:
     
     def compute_portfolio_nav(self, weights: Dict[str, float], start_date: str, end_date: str, rebalance: str = 'monthly') -> pd.Series:
         tickers = list(weights.keys())
-        if not np.isclose(sum(weights.values()), 1.0):
-            raise ValueError("Input weights must sum to 1.0")
-
         prices, _, returns = self._prepare_price_data(tickers, start_date, end_date)
         if prices.empty:
             return pd.Series(dtype=float)
 
-        rebalance_dates = set(self._get_rebalance_dates(prices.index, rebalance))
+        rebalance_dates = self._get_rebalance_dates(prices.index, rebalance)
+        rebalance_flags = np.zeros(len(prices), dtype=np.bool_)
+        rebalance_indices = prices.index.get_indexer(rebalance_dates)
+        rebalance_flags[rebalance_indices] = True
 
-        nav = [100.0]
-        current_weights = np.array([weights[t] for t in tickers])
-        asset_values = current_weights * 100
+        weights_vec = np.array([weights[t] for t in tickers])
+        returns_arr = returns[tickers].values
 
-        for i in range(1, len(prices)):
-            date = prices.index[i]
-            asset_values *= (1 + returns.iloc[i])
-            total_value = asset_values.sum()
-            nav.append(total_value)
-
-            if date in rebalance_dates:
-                asset_values = np.array([weights[t] * total_value for t in tickers])
-
-        return pd.Series(nav, index=prices.index)
+        nav_arr = nav_jit(returns_arr, weights_vec, rebalance_flags)
+        return pd.Series(nav_arr, index=prices.index)
 
 
     def compute_portfolio_weights(self, weights: Dict[str, float], start_date: str, end_date: str, rebalance: str = 'monthly') -> pd.DataFrame:
@@ -160,7 +185,7 @@ class ParquetDataService:
 
         rebalance_dates = set(self._get_rebalance_dates(prices.index, rebalance))
 
-        weights_records = []
+        records = []
         current_weights = np.array([weights[t] for t in tickers])
         asset_values = current_weights * 100
 
@@ -170,23 +195,19 @@ class ParquetDataService:
             total_value = asset_values.sum()
 
             if date in rebalance_dates:
-                before = asset_values / total_value
-                weights_records.append({
-                    'date': date,
-                    'rebalance_phase': 'before',
-                    **{tickers[j]: before[j] for j in range(len(tickers))}
-                })
+                before_weights = asset_values / total_value
+                after_weights = np.array([weights[t] for t in tickers])
 
-                # Rebalance
-                asset_values = np.array([weights[t] * total_value for t in tickers])
-                after = asset_values / total_value
-                weights_records.append({
-                    'date': date,
-                    'rebalance_phase': 'after',
-                    **{tickers[j]: after[j] for j in range(len(tickers))}
-                })
+                records.append([date, 'before', *before_weights])
+                # rebalance asset values
+                asset_values = after_weights * total_value
+                records.append([date, 'after', *after_weights])
 
-        return pd.DataFrame(weights_records)
+        # Build DataFrame once at the end
+        columns = ['date', 'rebalance_phase'] + tickers
+        df = pd.DataFrame(records, columns=columns)
+
+        return df
     
     def _compute_for_strategies(self, strategies, start_date, end_date, rebalance, compute_fn):
         results = {}

@@ -3,25 +3,34 @@ import plotly.graph_objects as go
 from data_service import ParquetDataService
 from pypfopt import plotting
 import pandas as pd
+import numpy as np
 
 class Chart:
     def __init__(self, data_service=None):
         self.data_service = data_service or ParquetDataService()
 
-    # @staticmethod
-    def plot_efficient_frontier(self, ef_max_sharpe, mu: pd.Series, vol: pd.Series) -> str:
-        # Base efficient frontier figure without assets
+    def convert_ndarrays(self, obj):
+        """Recursively convert all numpy.ndarray in obj to lists."""
+        if isinstance(obj, dict):
+            return {k: self.convert_ndarrays(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.convert_ndarrays(v) for v in obj]
+        elif isinstance(obj, tuple):
+            return tuple(self.convert_ndarrays(v) for v in obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        else:
+            return obj
+
+    def plot_efficient_frontier(self, ef_max_sharpe, mu: pd.Series, vol: pd.Series):
         fig = plotting.plot_efficient_frontier(ef_max_sharpe, interactive=True, show_assets=False)
 
-        # Prepare tickers, returns, risks
         tickers = mu.index.tolist()
         rets = mu.values
         risks = vol.loc[tickers].values
 
-        # Color palette
         colors = ['red', 'blue', 'green', 'orange', 'purple', 'cyan', 'magenta'] * (len(tickers) // 7 + 1)
 
-        # Add asset points with labels
         fig.add_scatter(
             x=risks,
             y=rets,
@@ -43,12 +52,22 @@ class Chart:
             yaxis_title="Expected Return",
             hovermode="closest",
             template='plotly_white',
-            height=500
+            height=500,
+            autosize=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,           # push legend slightly above the plot area
+                xanchor="right",
+                x=1
+            ),
+            margin=dict(t=100)   # increase top margin to avoid overlap
         )
 
-        return fig.to_html(full_html=False, include_plotlyjs=False)
+        data = [self.convert_ndarrays(trace.to_plotly_json()) for trace in fig.data]
+        layout = self.convert_ndarrays(fig.layout.to_plotly_json())
+        return data, layout
 
-    
     def heatmap(self, selected_tickers):
         ticker_sector_df = self.data_service.tickers_with_sectors
         filtered_df = ticker_sector_df[ticker_sector_df['Ticker'].isin(selected_tickers)].copy()
@@ -90,28 +109,49 @@ class Chart:
             showlegend=False
         )
 
-        return fig.to_html(full_html=False, include_plotlyjs=False)
+        data = [self.convert_ndarrays(trace.to_plotly_json()) for trace in fig.data]
+        layout = self.convert_ndarrays(fig.layout.to_plotly_json())
+        return data, layout
     
-    def plot_portfolios(self, navs, rebalance='monthly'):
+    def plot_portfolios(self, navs: dict[str, pd.Series], rebalance: str = 'monthly'):
         fig = go.Figure()
 
         for name, nav in navs.items():
+            # Drop NaNs to avoid length mismatch or invisible lines
+            nav_clean = nav.dropna()
+            if nav_clean.empty:
+                continue
+
+            x_vals = nav_clean.index.strftime('%Y-%m-%d').tolist()
+            y_vals = nav_clean.values.tolist()
+
             fig.add_trace(go.Scatter(
-                x=nav.index,
-                y=nav,
+                x=x_vals,
+                y=y_vals,
                 mode='lines',
                 name=name,
-                hoverinfo='skip',        # Disable hover info
+                hoverinfo='skip',
                 hovertemplate=None
             ))
 
         fig.update_layout(
             title=f'Portfolio Performance ({rebalance.capitalize()} Rebalancing)',
-            xaxis_title='Date',
-            yaxis_title='Portfolio Value (Normalized to 100%)',
             template='plotly_white',
             height=500,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            autosize=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=0.96,
+                xanchor="right",
+                x=1
+            ),
+            xaxis=dict(title="Time"),
+            yaxis=dict(title="Return (%)", ticksuffix="%", showgrid=True)
         )
 
-        return fig.to_html(full_html=False, include_plotlyjs=False)
+        # Serialize into Plotly-react compatible format
+        data_json = [self.convert_ndarrays(trace.to_plotly_json()) for trace in fig.data]
+        layout_json = self.convert_ndarrays(fig.layout.to_plotly_json())
+
+        return data_json, layout_json

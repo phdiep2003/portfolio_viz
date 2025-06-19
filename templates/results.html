@@ -5,16 +5,14 @@
         data-end-date="{{ end_date }}"
     >
     <h2>Efficient Frontier</h2>
-        <div class="plot-container" id="efficient-frontier-container">
-            <p>Loading plot...</p>
-        </div>
+    <div class="plot-container" id="efficient-frontier-container"></div>
     <button class="copy-btn" onclick="copyTable('mu_table')">Copy 📄</button>
     <table id ="mu_table">
         <tr><th>Ticker</th><th>Expected Return</th><th>Volatility</th><th>Sharpe Ratio</th></tr>
-        {% for ticker in mu.index %}
+        {% for ticker, mu_value in mu.items() %}
             <tr>
                 <td>{{ ticker }}</td>
-                <td>{{ '%.2f'|format(mu[ticker] * 100) }}%</td>
+                <td>{{ '%.2f'|format(mu_value * 100) }}%</td>
                 <td>{{ '%.2f'|format(vol[ticker] * 100) }}%</td>
                 <td>{{ '%.2f'|format(sharpe[ticker]) }}%</td>
             </tr>
@@ -55,10 +53,7 @@
     <h2>Asset Allocation Analysis</h2>
     <div style="overflow-x: auto;">
         {% if alloc_dict%}
-            <h3>Sectors Heatmap</h3>
-            <div class="plot-container" id="heatmap-container">
-                <p>Loading heatmap...</p>
-            </div>
+            <div class="plot-container" id="heatmap-container"></div>
             <table id="allocation-table">
                 <thead>
                     <tr>
@@ -86,6 +81,7 @@
     </div>
 
     <h2>Correlation Matrix</h2>
+    <div style="overflow-x: auto;">
         {% if corr_matrix %}
             <button class="copy-btn" onclick="copyTable('matrix')">Copy 📄</button>
             <table id="matrix" border="1" cellpadding="5" cellspacing="0">
@@ -114,28 +110,23 @@
         {% else %}
             <p>No correlation matrix data available.</p>
         {% endif %}
+    </div>
+        
+    <h2>Portfolio NAV Plots</h2>
+    <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;" id="nav-plot-monthly"></div>
+    <form method="POST" action="{{ url_for('export_weights') }}">
+        <input type="hidden" name="start_date" value="{{ start_date }}">
+        <input type="hidden" name="end_date" value="{{ end_date }}">
+        <input type="hidden" name="target_return" value="{{ target_return }}">
+        <input type="hidden" name="target_volatility" value="{{ target_volatility }}">
+        <input type="hidden" name="selected_tickers" value="{{ selected_tickers | join(',') }}">
 
-
-        <h2>Portfolio NAV Plots</h2>
-        <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;" id="nav-plot-monthly">
-            <p>Loading monthly NAV chart...</p>
-        </div>
-        <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;" id="nav-plot-weekly">
-            <p>Loading weekly NAV chart...</p>
-        </div>
-        <form method="POST" action="{{ url_for('export_weights') }}">
-            <input type="hidden" name="start_date" value="{{ start_date }}">
-            <input type="hidden" name="end_date" value="{{ end_date }}">
-            <input type="hidden" name="target_return" value="{{ target_return }}">
-            <input type="hidden" name="target_volatility" value="{{ target_volatility }}">
-            <input type="hidden" name="selected_tickers" value="{{ selected_tickers | join(',') }}">
-
-            <label for="rebalance">Click to Export Rebalancing Strategies:</label>
-            <select name="rebalance" id="rebalance" required>
-                <option value="weekly">Weekly</option>
-                <option value="monthly" selected>Monthly</option>
-            </select>
-            <button type="submit" class="submit-btn">Download Weights Excel</button>
-        </form>
+        <label for="rebalance">Click to Export Rebalancing Strategies:</label>
+        <select name="rebalance" id="rebalance" required>
+            <option value="weekly">Weekly</option>
+            <option value="monthly" selected>Monthly</option>
+        </select>
+        <button type="submit" class="submit-btn">Download Weights Excel</button>
+    </form>
     </div>
 {% endif %}   

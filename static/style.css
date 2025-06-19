@@ -276,7 +276,10 @@ input[type=number]::-webkit-outer-spin-button {
   contain: layout paint;
   overflow: auto;
   max-width: 100%;
+  min-height: 400px;
+  width: 100%;
 }
+
 
 .portfolio-plot {
   width: 100%;
