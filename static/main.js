@@ -46,6 +46,7 @@ $(document).ready(function () {
       btn.textContent = 'Running...';
     }
   });
+  plotCharts();
 });
 
 // --- Dynamically Add New Asset Row ---
@@ -92,80 +93,3 @@ function copyTable(tableId) {
     .then(() => alert("Table copied to clipboard as plain text!"))
     .catch(err => alert("Failed to copy: " + err));
 }
-
-// --- Plotly JSON Plot Loader ---
-function loadPlotJson(url, containerId) {
-  const container = document.getElementById(containerId);
-  if (!container) return Promise.resolve(); // so Promise.all doesn't fail
-
-  return fetch(url)
-    .then(res => res.json())
-    .then(data => {
-      console.log("Plot data received for", containerId, data);
-      if (data.error) {
-        container.innerHTML = `<p>${data.error}</p>`;
-        return;
-      }
-
-      if (data.data && data.layout) {
-        const hasPlot = container.classList.contains("js-plotly-plot");
-        const plotFunc = hasPlot ? Plotly.react : Plotly.newPlot;
-        return plotFunc(container, data.data, data.layout, { responsive: true });
-      } else {
-        container.innerHTML = "<p>Plot data missing.</p>";
-      }
-    })
-    .catch(err => {
-      container.innerHTML = "<p>Error loading plot.</p>";
-      console.error("Plot load error:", err);
-    });
-}
-// --- Toggle Portfolio Plot Tabs ---
-document.addEventListener("DOMContentLoaded", async () => {
-  const container = document.querySelector(".results");
-  if (!container) {
-    console.warn("No results container found, skipping plot loading.");
-    return;
-  }
-
-  // Hide while loading
-  container.style.visibility = "hidden";
-
-  const cacheKey = container.dataset.cacheKey;
-  const startDate = container.dataset.startDate;
-  const endDate = container.dataset.endDate;
-
-  if (!(cacheKey && startDate && endDate)) {
-    console.warn("Missing cache key or date range for plots.");
-    return;
-  }
-
-  try {
-    await Promise.all([
-      loadPlotJson(`/plot/efficient_frontier?cache_key=${cacheKey}`, "efficient-frontier-container"),
-      loadPlotJson(`/plot/heatmap?cache_key=${cacheKey}`, "heatmap-container"),
-      loadPlotJson(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=monthly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-monthly")
-      // loadPlotJson(`/plot/nav_chart?cache_key=${cacheKey}&rebalance=weekly&start_date=${startDate}&end_date=${endDate}`, "nav-plot-weekly")
-    ]);
-
-    console.log("All plots loaded successfully");
-    container.style.visibility = "visible";  // Show after all plots are ready
-  } catch (err) {
-    console.error("Error loading plots:", err);
-    container.style.visibility = "visible"; // Still show to let error messages appear
-  }
-
-  // Setup toggle buttons
-  const freqButtons = document.querySelectorAll('.btn-group button');
-  freqButtons.forEach(button => {
-    button.addEventListener('click', () => {
-      freqButtons.forEach(b => b.classList.remove('active'));
-      button.classList.add('active');
-
-      const freq = button.getAttribute('data-freq');
-      document.querySelectorAll('.portfolio-plot').forEach(div => div.style.display = 'none');
-      const selectedPlot = document.getElementById(`plot-${freq}`);
-      if (selectedPlot) selectedPlot.style.display = 'block';
-    });
-  });
-});

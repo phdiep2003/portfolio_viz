@@ -1,11 +1,6 @@
 {% if cache_key and mu is not none and not mu.empty %}
-    <div class="results"
-        data-cache-key="{{ cache_key }}"
-        data-start-date="{{ start_date }}"
-        data-end-date="{{ end_date }}"
-    >
     <h2>Efficient Frontier</h2>
-    <div class="plot-container" id="efficient-frontier-container"></div>
+    <div id="efficient-frontier-container"></div>
     <button class="copy-btn" onclick="copyTable('mu_table')">Copy 📄</button>
     <table id ="mu_table">
         <tr><th>Ticker</th><th>Expected Return</th><th>Volatility</th><th>Sharpe Ratio</th></tr>
@@ -53,7 +48,7 @@
     <h2>Asset Allocation Analysis</h2>
     <div style="overflow-x: auto;">
         {% if alloc_dict%}
-            <div class="plot-container" id="heatmap-container"></div>
+            <div id="heatmap-container"></div>
             <table id="allocation-table">
                 <thead>
                     <tr>
@@ -113,7 +108,7 @@
     </div>
         
     <h2>Portfolio NAV Plots</h2>
-    <div class="card shadow-sm p-3 mb-4 bg-white rounded" style="width: 100%;" id="nav-plot-monthly"></div>
+    <div id="nav-plot-monthly"></div>
     <form method="POST" action="{{ url_for('export_weights') }}">
         <input type="hidden" name="start_date" value="{{ start_date }}">
         <input type="hidden" name="end_date" value="{{ end_date }}">
@@ -128,5 +123,33 @@
         </select>
         <button type="submit" class="submit-btn">Download Weights Excel</button>
     </form>
-    </div>
+
+    <script>
+        function plotCharts() {
+            try {
+                // Efficient Frontier
+                Plotly.newPlot(
+                    'efficient-frontier-container',
+                    {{ efficient_frontier_data | tojson | safe }},  // Remove JSON.parse
+                    {{ efficient_frontier_layout | tojson | safe }}
+                );
+                
+                // Heatmap
+                Plotly.newPlot(
+                    'heatmap-container',
+                    {{ heatmap_data | tojson | safe }},
+                    {{ heatmap_layout | tojson | safe }}
+                );
+                
+                // Monthly Portfolio
+                Plotly.newPlot(
+                    'nav-plot-monthly',
+                    {{ portfolio_data.monthly | tojson | safe }},
+                    {{ portfolio_layout.monthly | tojson | safe }}
+                );
+            } catch (e) {
+                console.error("Chart rendering error:", e);
+            }
+        }
+    </script>
 {% endif %}   

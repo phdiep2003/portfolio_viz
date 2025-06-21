@@ -271,19 +271,9 @@ input[type=number]::-webkit-outer-spin-button {
   overflow-x: hidden;
   z-index: 9999 !important;
 }
-.plot-container {
-  margin-top: 0px;
-  contain: layout paint;
-  overflow: auto;
-  max-width: 100%;
-  min-height: 400px;
-  width: 100%;
-}
-
-
-.portfolio-plot {
-  width: 100%;
-}
-.portfolio-plot .js-plotly-plot {
-  width: 100% !important;
-}
+.plotly-chart {
+    width: 100% !important;
+    height: 600px;  /* Fixed height or use vh */
+    margin: 0;
+    padding: 0;
+  }

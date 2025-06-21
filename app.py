@@ -38,41 +38,6 @@ def tickers_api():
     matches = [t for t in data_service.get_tickers if t.startswith(q)]
     return Response(orjson.dumps(matches[:20]), content_type="application/json")
 
-@app.route('/plot/<string:plot_type>')
-def plot_handler(plot_type):
-    cache_key = request.args.get("cache_key")
-    if not cache_key or not cache.exists(cache_key):
-        return jsonify({'error': f"{plot_type.title()} data not found."}), 400
-
-    cached_bytes = cache.load(cache_key)  # load bytes from cache
-    cached = orjson.loads(cached_bytes)   # parse bytes to dict
-
-    if plot_type == "efficient_frontier":
-        data = cached.get("efficient_frontier_data")
-        layout = cached.get("efficient_frontier_layout")
-    elif plot_type == "heatmap":
-        data = cached.get("heatmap_data")
-        layout = cached.get("heatmap_layout")
-    elif plot_type == "nav_chart":
-        freq = request.args.get("rebalance", "monthly")
-        data_all = cached.get("portfolio_data", {})
-        layout_all = cached.get("portfolio_layout", {})
-        data = data_all.get(freq)
-        layout = layout_all.get(freq)
-    else:
-        return jsonify({'error': "Invalid plot type."}), 400
-
-    if not data or not layout:
-        return jsonify({'error': f"{plot_type.title()} figure missing."}), 400
-
-    if not isinstance(data, list):
-        data = [data]
-
-    return Response(
-        orjson.dumps({'data': data, 'layout': layout}),
-        content_type="application/json"
-    )
-
 @app.route('/export_weights', methods=['POST'])
 def export_weights():
     import pandas as pd
@@ -214,6 +179,7 @@ def unified_portfolio():
             data_port_json, layout_port_json = serialize_fig(data_port, layout_port)
             port_data['monthly'] = data_port_json
             port_layout['monthly'] = layout_port_json
+            
             result_data = {
                 'mu': mu.to_dict(),
                 'vol': vol.to_dict(),
