@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import pyarrow.dataset as ds
 from functools import cached_property
 from typing import List, Dict
 import os
@@ -26,7 +27,7 @@ def nav_jit(returns, weights, rebalance_flags):
     return nav
 
 class ParquetDataService:
-    def __init__(self, price_path="data/prices_pivot.parquet", dividend_path="data/dividends_pivot.parquet"):
+    def __init__(self, price_path="data/prices_partitioned", dividend_path="data/dividends_partitioned"):
         self.price_path = price_path
         self.dividend_path = dividend_path
         self._prices = None
@@ -43,57 +44,116 @@ class ParquetDataService:
     def tickers_with_sectors(self):
         return pd.read_parquet('data/tickers_with_sectors.parquet')
     
-    def _load_prices(self) -> pd.DataFrame:
-        if self._prices is None:
-            self._prices = pd.read_parquet(self.price_path)
-            self._prices.index = pd.to_datetime(self._prices.index)
-            self._prices.sort_index(inplace=True)
-        return self._prices
+    # def _load_prices(self) -> pd.DataFrame:
+    #     if self._prices is None:
+    #         self._prices = pd.read_parquet(self.price_path)
+    #         self._prices.index = pd.to_datetime(self._prices.index)
+    #         self._prices.sort_index(inplace=True)
+    #     return self._prices
 
-    def _load_dividends(self) -> pd.DataFrame:
-        if self._dividends is None and os.path.exists(self.dividend_path):
-            df = pd.read_parquet(self.dividend_path)
-            df.index = pd.to_datetime(df.index)
-            df.sort_index(inplace=True)
-            self._dividends = df
-        return self._dividends if self._dividends is not None else pd.DataFrame()
+    # def _load_dividends(self) -> pd.DataFrame:
+    #     if self._dividends is None and os.path.exists(self.dividend_path):
+    #         df = pd.read_parquet(self.dividend_path)
+    #         df.index = pd.to_datetime(df.index)
+    #         df.sort_index(inplace=True)
+    #         self._dividends = df
+    #     return self._dividends if self._dividends is not None else pd.DataFrame()
 
     def get_prices(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
-        df = self._load_prices()
-        df_slice = df.loc[start_date:end_date, tickers]
+        dataset = ds.dataset(self.price_path, format='parquet', partitioning='hive')
 
-        if df_slice.empty or len(df_slice) < 10:
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+
+        filter_expr = (
+            ds.field('Ticker').isin(tickers) &
+            (ds.field('Date') >= start_dt) &
+            (ds.field('Date') <= end_dt)
+        )
+
+        table = dataset.to_table(filter=filter_expr)
+        df = table.to_pandas()
+
+        if df.empty or len(df) < 10:
             raise ValueError(
                 "Available data range is 2015–2025. "
                 "Need more? Please hire me as your investment analyst!"
                 "hungphatdiep03@gmail.com +974 3063-6181"
             )
 
-        last_row = df_slice.iloc[-1]
+        df['Date'] = pd.to_datetime(df['Date'])
+        df_pivot = df.pivot(index='Date', columns='Ticker', values='Price').sort_index()
+
+        # Check for missing data at the end date for each ticker
+        last_row = df_pivot.iloc[-1]
         missing_at_end = last_row[last_row.isna()].index.tolist()
 
         if missing_at_end:
             raise ValueError(f"The following tickers have no data at the end of the selected range: {missing_at_end}")
-        return df_slice
+
+        # Ensure all requested tickers are columns, fill missing with NaN
+        for t in tickers:
+            if t not in df_pivot.columns:
+                df_pivot[t] = np.nan
+        df_pivot = df_pivot[tickers]
+
+        return df_pivot
 
     def get_dividends(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
-        df = self._load_dividends()
-        if df.empty:
-            return pd.DataFrame(columns=tickers)
 
-        existing_tickers = [t for t in tickers if t in df.columns]
-        df = df.loc[start_date:end_date, existing_tickers]
-
-        missing_tickers = [t for t in tickers if t not in existing_tickers]
-        for t in missing_tickers: # Add missing tickers as columns with NaN
-            df[t] = np.nan
+        # print("📦 DEBUG: Loading dividend dataset from:", self.dividend_path)
+        dataset = ds.dataset(self.dividend_path, format='parquet', partitioning='hive')
         
-        df = df[tickers] # Reorder columns to match requested tickers
+        # Print schema and partitioning info
+        # print("🔍 DEBUG: Dataset schema:")
+        # print(dataset.schema)
+        # print("📁 DEBUG: Partitioning schema:")
+        # print(dataset.partitioning)
+
+        # Convert dates
+        start_dt = pd.to_datetime(start_date)
+        end_dt = pd.to_datetime(end_date)
+        # print(f"🗓️ DEBUG: Date range: {start_dt.date()} to {end_dt.date()}")
+        # print(f"🔎 DEBUG: Filtering for tickers: {tickers}")
+
+        # Build filter expression
+        filter_expr = (
+            ds.field('Ticker').isin(tickers) &
+            (ds.field('Date') >= start_dt) &
+            (ds.field('Date') <= end_dt)
+        )
+
+        # Load filtered data
+        table = dataset.to_table(filter=filter_expr)
+        # print("📊 DEBUG: Loaded PyArrow table with", table.num_rows, "rows")
+
+        df = table.to_pandas()
+        # print("✅ DEBUG: Converted to DataFrame with shape:", df.shape)
+
+        if not df.empty:
+            # print(df.head())
+            # required_columns = {"Date", "Ticker", "Price"}
+            # if not required_columns.issubset(df.columns):
+            #     raise ValueError(f"❌ Missing one or more required columns: {required_columns - set(df.columns)}")
+            df['Date'] = pd.to_datetime(df['Date'])
+            df = df.pivot(index='Date', columns='Ticker', values='Price').sort_index()
+            # print("📈 DEBUG: Pivoted dividend DataFrame with columns:", df.columns.tolist())
+        else:
+            # print("⚠️ WARNING: No data returned for this filter. Returning empty DataFrame.")
+            df = pd.DataFrame(columns=tickers)
+
+        # Add missing tickers with NaN columns
+        for t in tickers:
+            if t not in df.columns:
+                df[t] = np.nan
+        df = df[tickers]  # Ensure consistent column order
 
         return df
 
+
     def get_returns(self, tickers: List[str], start_date: str, end_date: str) -> pd.DataFrame:
         prices = self.get_prices(tickers, start_date, end_date)
+        # print("DEBUG")
         dividends = self.get_dividends(tickers, start_date, end_date)
         if prices.empty:
             return pd.DataFrame()

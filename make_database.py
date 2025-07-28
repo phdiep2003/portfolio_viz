@@ -3,6 +3,9 @@ import pandas as pd
 from datetime import datetime
 import time
 from tqdm import tqdm
+import pyarrow as pa
+import pyarrow.parquet as pq
+import os
 
 
 def get_sp500_tickers():
@@ -133,6 +136,37 @@ def save_pivoted_dividends(output_path: str = "data/dividends_pivot.parquet"):
         pivot = df.pivot(index="ExDate", columns="Ticker", values="Dividend").sort_index()
         pivot.to_parquet(output_path)
 
+def partition_prices_by_ticker(parquet_path='data/prices_pivot.parquet', output_dir='data/prices_partitioned'):
+    df = pd.read_parquet(parquet_path)
+
+    # Step 1: Reset index and keep the 'Date' column
+    df = df.copy()
+    df.index = pd.to_datetime(df.index)
+    df = df.reset_index()  # 'Date' becomes a column
+
+    # Step 2: (No need for PartitionMonth or PartitionDate since we're partitioning only by ticker)
+    # Just keep 'Date' column for data
+    df.rename(columns={'ExDate': 'Date'}, inplace=True)
+    # Step 3: Melt from wide to long format
+    df_melted = df.melt(
+        id_vars=['Date'],
+        var_name='Ticker',
+        value_name='Price'
+    )
+
+    # Step 4: Convert to Arrow Table
+    table = pa.Table.from_pandas(df_melted)
+
+    # Step 5: Write partitioned Parquet dataset by ticker only
+    pq.write_to_dataset(
+        table,
+        root_path=output_dir,
+        partition_cols=['Ticker'],
+        existing_data_behavior='overwrite_or_ignore'
+    )
+
+    print(f"✅ Partitioned prices saved to: {output_dir}")
+
 if __name__ == "__main__":
     # === CONFIG ===
     # with open('tickers.txt', 'r') as f:
@@ -195,4 +229,7 @@ if __name__ == "__main__":
     # save_pivoted_prices()
     # save_pivoted_dividends()
     # price_df_load = pd.read_parquet('data/prices_pivot.parquet')
-    dividend_df_load = pd.read_parquet('data/dividends_pivot.parquet')
+    # dividend_df_load = pd.read_parquet('data/dividends_pivot.parquet')
+    # partition_prices_by_ticker(parquet_path='data/prices_pivot.parquet', output_dir='data/prices_partitioned')
+    partition_prices_by_ticker(parquet_path='data/dividends_pivot.parquet', output_dir='data/dividends_partitioned')
+    

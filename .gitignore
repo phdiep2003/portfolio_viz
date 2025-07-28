@@ -14,3 +14,13 @@ __pycache__/
 # Ignore OS files
 .DS_Store
 Thumbs.db
+
+crossover_candidates/
+ema_crossover_charts/
+ema_crossover_candidates/
+research/
+stock_cache/
+moving_average.py
+seek_moving_average.py
+try.py
+phd/

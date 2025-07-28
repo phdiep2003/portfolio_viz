@@ -147,15 +147,12 @@ def unified_portfolio():
 
             mu = returns_df.loc[tickers, 'Annualized Return']
             prices = data_service.get_prices(tickers, start, end)
-            common_cols = [col for col in prices.columns if col in mu.index]
-            prices = prices[common_cols]
-
             bounds = [(min_w[t], max_w[t]) for t in mu.index]
 
             optimizer = PortfolioOptimizer()
             results = optimizer.run_optimizations(mu, prices, bounds, r_target, v_target)
+            # print(results)
             ef = results['Max Sharpe']
-
             vol = prices.pct_change().dropna().std() * (252 ** 0.5)
             sharpe = (mu - Config.RISK_FREE_RATE) / vol
             corr = PortfolioOptimizer.compute_corr_matrix(prices)
@@ -173,7 +170,6 @@ def unified_portfolio():
             # Portfolio plots for monthly and weekly
             port_data = {}
             port_layout = {}
-            # for freq in ['monthly', 'weekly']:
             navs = data_service.compute_navs_for_strategies(alloc, start, end, 'monthly')
             data_port, layout_port = chart.plot_portfolios(navs, 'monthly')
             data_port_json, layout_port_json = serialize_fig(data_port, layout_port)

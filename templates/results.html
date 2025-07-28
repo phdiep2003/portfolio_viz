@@ -2,7 +2,7 @@
     <h2>Efficient Frontier</h2>
     <div id="efficient-frontier-container"></div>
     <button class="copy-btn" onclick="copyTable('mu_table')">Copy 📄</button>
-    <table id ="mu_table">
+    <table id ="mu_table" style="min-height: 100px;">
         <tr><th>Ticker</th><th>Expected Return</th><th>Volatility</th><th>Sharpe Ratio</th></tr>
         {% for ticker, mu_value in mu.items() %}
             <tr>
@@ -18,7 +18,7 @@
         <div style="overflow-x: auto;">
         {% if perf_dict %}
         <button class="copy-btn" onclick="copyTable('perf-summary')">Copy 📄</button>
-        <table id="perf-summary">
+        <table id="perf-summary" style="min-height: 100px;">
             <thead>
             <tr>
                 {% for col in perf_dict[0].keys() %}
@@ -46,7 +46,7 @@
         </div>
 
     <h2>Asset Allocation Analysis</h2>
-    <div style="overflow-x: auto;">
+    <div style="overflow-x: auto;" style="min-height: 100px;">
         {% if alloc_dict%}
             <div id="heatmap-container"></div>
             <table id="allocation-table">
@@ -79,7 +79,7 @@
     <div style="overflow-x: auto;">
         {% if corr_matrix %}
             <button class="copy-btn" onclick="copyTable('matrix')">Copy 📄</button>
-            <table id="matrix" border="1" cellpadding="5" cellspacing="0">
+            <table id="matrix" border="1" cellpadding="5" cellspacing="0" style="min-height: 100px;">
                 <tr>
                     <th></th>
                     {% for col in corr_matrix.keys() %}
@@ -150,6 +150,11 @@
             } catch (e) {
                 console.error("Chart rendering error:", e);
             }
+        }
+        if (window.requestIdleCallback) {
+            requestIdleCallback(plotCharts);
+        } else {
+            setTimeout(plotCharts, 1000);  // fallback
         }
     </script>
 {% endif %}   

@@ -62,22 +62,28 @@
     <button type="button" onclick="addRow()">Add Asset</button>
     
     <div style="margin-top: 25px;">
-        <label>Start Date:</label>
-        <input type="date" name="start_date" value="{{ start_date }}">
+        <label>
+            Start Date:
+            <input type="date" name="start_date" value="{{ start_date }}">
+        </label>
     </div>
-    <div>
-        <label>End Date:</label>
-        <input type="date" name="end_date" value="{{ end_date }}">
-    </div>
-
     <div style="margin-top: 25px;">
-        <label>Target Return:</label>
-        <input type="number" step="0.01" name="target_return" required value="{{ target_return or 0.15 }}">
+        <label>
+            End Date:
+            <input type="date" name="end_date" value="{{ end_date }}">
+        </label>
     </div>
-    <div>
-        <label>Target Volatility:</label>
-        <input type="number" step="0.01" name="target_volatility" required value="{{ target_volatility or 0.13 }}">
+    <div style="margin-top: 25px;">
+        <label>
+            Target Return:
+            <input type="number" step="0.01" name="target_return" value="{{ target_return or 0.15 }}">
+        </label>
     </div>
-
+    <div style="margin-top: 25px;">
+        <label>
+            Target Volatility:
+            <input type="number" step="0.01" name="target_return" value="{{ target_return or 0.13 }}">
+        </label>
+    </div>
     <button class="submit-btn" type="submit">Run Optimization</button>
 </form>
