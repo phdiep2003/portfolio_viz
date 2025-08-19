@@ -1,3 +1,28 @@
+// --- NEW: A helper function that delays execution until after a pause ---
+function debounce(func, delay = 250) {
+  let timeoutId;
+  return function(...args) {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      func.apply(this, args);
+    }, delay);
+  };
+}
+
+// --- NEW: A function to resize all Plotly charts ---
+function resizePlotlyCharts() {
+  const plotContainers = [
+    'efficient-frontier-container',
+    'heatmap-container',
+    'nav-plot-monthly'
+  ].map(id => document.getElementById(id)).filter(el => el && el.offsetParent !== null);
+
+  plotContainers.forEach(container => {
+    Plotly.Plots.resize(container);
+  });
+}
+
+
 // --- jQuery UI Autocomplete Initialization ---
 function initializeAutocomplete(input) {
   $(input).autocomplete({
@@ -21,6 +46,8 @@ function initializeAutocomplete(input) {
     },
     select: function (event, ui) {
       $(this).val(ui.item.value);
+      // Manually trigger the input event to save the state
+      $(this).trigger('input');
       return false;
     }
   }).on("keydown", function (e) {
@@ -32,25 +59,25 @@ function initializeAutocomplete(input) {
   });
 }
 
-// --- Dynamically Add New Asset Row ---
-function addRow() {
+// --- MODIFIED: Add New Asset Row (now accepts data) ---
+function addRow(asset = { ticker: '', min: '0', max: '15' }) {
   const tbody = document.getElementById('assets-tbody');
   const rowCount = tbody.rows.length;
   const newRow = document.createElement('tr');
 
   newRow.innerHTML = `
       <td>
-          <input type="text" name="tickers_${rowCount}" class="ticker-input" autocomplete="off" data-index="${rowCount}">
+          <input type="text" name="tickers_${rowCount}" class="ticker-input" autocomplete="off" data-index="${rowCount}" value="${asset.ticker}">
       </td>
       <td>
           <div class="input-with-symbol">
-              <input type="number" name="min_${rowCount}" min="0" max="100" step="0.01" value="0">
+              <input type="number" name="min_${rowCount}" min="0" max="100" step="0.01" value="${asset.min}">
               <span class="percent-symbol">%</span>
           </div>
       </td>
       <td>
           <div class="input-with-symbol">
-              <input type="number" name="max_${rowCount}" min="0" max="100" step="0.01" value="15">
+              <input type="number" name="max_${rowCount}" min="0" max="100" step="0.01" value="${asset.max}">
               <span class="percent-symbol">%</span>
           </div>
       </td>
@@ -60,6 +87,61 @@ function addRow() {
   document.getElementById('asset_count').value = rowCount + 1;
   initializeAutocomplete(newRow.querySelector('.ticker-input'));
 }
+
+// --- NEW: Save the entire form state to localStorage ---
+function saveFormState() {
+    const assets = [];
+    $('#assets-tbody tr').each(function() {
+        const row = $(this);
+        assets.push({
+            ticker: row.find('.ticker-input').val(),
+            min: row.find('input[name^="min_"]').val(),
+            max: row.find('input[name^="max_"]').val()
+        });
+    });
+
+    const formData = {
+        startDate: $('#start_date').val(),
+        endDate: $('#end_date').val(),
+        targetReturn: $('#target_return').val(),
+        targetVolatility: $('#target_volatility').val(),
+        assets: assets
+    };
+
+    localStorage.setItem('portfolioFormData', JSON.stringify(formData));
+}
+
+// --- NEW: Load form state from localStorage on page load ---
+function loadFormState() {
+    const savedData = localStorage.getItem('portfolioFormData');
+    if (!savedData) {
+        // If no data, initialize the default rows
+        $('.ticker-input').each(function () {
+            initializeAutocomplete(this);
+        });
+        return;
+    }
+
+    const data = JSON.parse(savedData);
+
+    // Populate static fields
+    $('#start_date').val(data.startDate);
+    $('#end_date').val(data.endDate);
+    $('#target_return').val(data.targetReturn);
+    $('#target_volatility').val(data.targetVolatility);
+
+    // Re-create dynamic asset rows
+    const tbody = $('#assets-tbody');
+    tbody.empty(); // Clear any hardcoded default rows
+
+    if (data.assets && data.assets.length > 0) {
+        data.assets.forEach(asset => addRow(asset));
+    } else {
+        // If no assets were saved, add one blank row to start
+        addRow();
+    }
+}
+
 
 // --- Copy HTML Table to Clipboard ---
 function copyTable(tableId) {
@@ -166,17 +248,37 @@ function renderResults(data) {
 }
 
 
-// --- Bind Autocomplete and Handle Form Submission on Page Load ---
+// --- MODIFIED: Bind Events on Page Load ---
 $(document).ready(function () {
-  $('.ticker-input').each(function () {
-    initializeAutocomplete(this);
-  });
+  // 1. Load any previously saved state from localStorage
+  loadFormState();
+  
+  // 2. Listen for window resize to make plots responsive
+  window.addEventListener('resize', debounce(resizePlotlyCharts));
 
+  // 3. Save form state whenever any input changes
+  // We use event delegation to capture events on dynamically added rows
+  $('form').on('input', 'input', saveFormState);
+
+  // 4. Handle the main form submission
   $('form').on('submit', async function (event) {
     event.preventDefault();
 
+    // Also save state on submit, just in case
+    saveFormState();
+
     const submitButton = $(this).find('.submit-btn');
-    submitButton.prop('disabled', true).text('Calculating...');
+    
+    // --- START: Loading effect ---
+    submitButton.prop('disabled', true);
+    let dotCount = 0;
+    const loadingInterval = setInterval(() => {
+        dotCount = (dotCount + 1) % 4; // Cycle through 0, 1, 2, 3
+        const dots = '.'.repeat(dotCount);
+        submitButton.text(`Calculating${dots}`);
+    }, 400);
+    // --- END: Loading effect ---
+
     $('#results-container').html('<div class="loader"></div>');
     $('#error-message').hide().text('');
 
@@ -184,7 +286,9 @@ $(document).ready(function () {
     const tickers = [];
     const minWeights = {};
     const maxWeights = {};
-    for (let i = 0; i < formData.get('asset_count'); i++) {
+    const assetCount = $('#assets-tbody tr').length; // More reliable way to get count
+    
+    for (let i = 0; i < assetCount; i++) {
         const ticker = formData.get(`tickers_${i}`);
         if (ticker) {
             tickers.push(ticker);
@@ -220,7 +324,10 @@ $(document).ready(function () {
         $('#results-container').html('');
         $('#error-message').text(`An error occurred: ${error.message}`).show();
     } finally {
+        // --- START: Clear loading effect ---
+        clearInterval(loadingInterval);
         submitButton.prop('disabled', false).text('Run Optimization');
+        // --- END: Clear loading effect ---
     }
   });
 });

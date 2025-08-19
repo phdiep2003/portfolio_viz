@@ -33,7 +33,7 @@ class PortfolioOptimizer:
         strategies = {
             "Min Volatility": lambda ef: ef.min_volatility(),
             f"Efficient Return (target: {target_return:.3f})": lambda ef: ef.efficient_return(target_return),
-            f"Efficient Risk (target: {target_volatility:.3f})": lambda ef: ef.efficient_risk(target_volatility),
+            # f"Efficient Risk (target: {target_volatility:.3f})": lambda ef: ef.efficient_risk(target_volatility),
         }
 
         for name, strategy in strategies.items():
