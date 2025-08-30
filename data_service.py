@@ -4,6 +4,7 @@ import pyarrow.dataset as ds
 from functools import cached_property
 from typing import List, Dict
 from numba import njit
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 @njit
 def nav_jit_optimized(returns: np.ndarray, weights: np.ndarray, rebalance_flags: np.ndarray) -> np.ndarray:
@@ -198,8 +199,7 @@ class ParquetDataService:
         if rebalance == 'monthly':
             return index.to_series().resample('ME').first().index
         elif rebalance == 'weekly':
-            # OPTIMIZED: Removed .tolist() to avoid an unnecessary type conversion.
-            return index.to_series().resample('W-FRI').first().dropna().index
+            return index.to_series().resample('W-FRI').first().index
         elif rebalance == 'quarterly':
             return index.to_series().resample('Q').first().index
     
@@ -231,6 +231,28 @@ class ParquetDataService:
         
         return pd.Series(nav_arr, index=prices.index)
 
+    def _compute_for_strategies(self, strategies, start_date, end_date, rebalance, compute_fn):
+        # limit to first 2 strategies (since you have 2 workers on Azure)
+        first_two = list(strategies.items())[:2]
+
+        results = {}
+        with ProcessPoolExecutor(max_workers=2) as executor:
+            futures = {
+                executor.submit(
+                    compute_fn,
+                    weights=wts,
+                    start_date=start_date,
+                    end_date=end_date,
+                    rebalance=rebalance
+                ): name
+                for name, wts in first_two
+            }
+
+            for future in as_completed(futures):
+                name = futures[future]
+                results[name] = future.result()
+
+        return results
 
     # def compute_portfolio_weights(self, weights: Dict[str, float], start_date: str, end_date: str, rebalance: str = 'monthly') -> pd.DataFrame:
     #     tickers = list(weights.keys())
@@ -267,16 +289,6 @@ class ParquetDataService:
 
     #     return df
     
-    def _compute_for_strategies(self, strategies, start_date, end_date, rebalance, compute_fn):
-        results = {}
-        for name, wts in strategies.items():
-            results[name] = compute_fn(
-                weights=wts,
-                start_date=start_date,
-                end_date=end_date,
-                rebalance=rebalance
-            )
-        return results
 
     def compute_navs_for_strategies(self, strategies, start_date, end_date, rebalance):
         return self._compute_for_strategies(strategies, start_date, end_date, rebalance, self.compute_portfolio_nav)

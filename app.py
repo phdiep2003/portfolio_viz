@@ -27,7 +27,7 @@ limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     storage_uri="memory://",
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=[]
 )
 
 # --- Configuration ---
@@ -122,6 +122,7 @@ def portfolio_analysis_api():
         results = optimizer.run_optimizations(mu, prices, bounds, r_target, v_target)
         
         ef = results['Max Sharpe']
+        
         vol = prices.pct_change().dropna().std() * (252 ** 0.5)
         sharpe = (mu - Config.RISK_FREE_RATE) / vol
         corr = PortfolioOptimizer.compute_corr_matrix(prices)
@@ -132,7 +133,6 @@ def portfolio_analysis_api():
         data_heatmap, layout_heatmap = chart.heatmap(mu.index.tolist())
         navs = data_service.compute_navs_for_strategies(alloc, start, end, 'monthly')
         data_port, layout_port = chart.plot_portfolios(navs, 'monthly')
-        
         result_data = {
             'mu': mu.to_dict(),
             'vol': vol.to_dict(),

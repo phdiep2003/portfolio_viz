@@ -247,6 +247,18 @@ function renderResults(data) {
   $('#correlation-matrix-container').html(corrTable);
 }
 
+function rateLimit(fn, interval = 5000) { // default: 1 request every 5s
+  let lastTime = 0;
+  return async function (...args) {
+    const now = Date.now();
+    if (now - lastTime < interval) {
+      alert(`Please wait ${((interval - (now - lastTime)) / 1000).toFixed(1)}s before retrying.`);
+      return;
+    }
+    lastTime = now;
+    return fn.apply(this, args);
+  };
+}
 
 // --- MODIFIED: Bind Events on Page Load ---
 $(document).ready(function () {
@@ -261,23 +273,18 @@ $(document).ready(function () {
   $('form').on('input', 'input', saveFormState);
 
   // 4. Handle the main form submission
-  $('form').on('submit', async function (event) {
+  $('form').on('submit', rateLimit(async function (event) {
     event.preventDefault();
-
-    // Also save state on submit, just in case
     saveFormState();
-
     const submitButton = $(this).find('.submit-btn');
-    
-    // --- START: Loading effect ---
+
+    // --- Loading effect ---
     submitButton.prop('disabled', true);
     let dotCount = 0;
     const loadingInterval = setInterval(() => {
-        dotCount = (dotCount + 1) % 4; // Cycle through 0, 1, 2, 3
-        const dots = '.'.repeat(dotCount);
-        submitButton.text(`Calculating${dots}`);
+        dotCount = (dotCount + 1) % 4;
+        submitButton.text(`Calculating${'.'.repeat(dotCount)}`);
     }, 400);
-    // --- END: Loading effect ---
 
     $('#results-container').html('<div class="loader"></div>');
     $('#error-message').hide().text('');
@@ -286,8 +293,8 @@ $(document).ready(function () {
     const tickers = [];
     const minWeights = {};
     const maxWeights = {};
-    const assetCount = $('#assets-tbody tr').length; // More reliable way to get count
-    
+    const assetCount = $('#assets-tbody tr').length;
+
     for (let i = 0; i < assetCount; i++) {
         const ticker = formData.get(`tickers_${i}`);
         if (ticker) {
@@ -306,7 +313,7 @@ $(document).ready(function () {
         min_weights: minWeights,
         max_weights: maxWeights
     };
-    
+
     try {
         const response = await fetch('/api/portfolio_analysis', {
             method: 'POST',
@@ -324,10 +331,8 @@ $(document).ready(function () {
         $('#results-container').html('');
         $('#error-message').text(`An error occurred: ${error.message}`).show();
     } finally {
-        // --- START: Clear loading effect ---
         clearInterval(loadingInterval);
         submitButton.prop('disabled', false).text('Run Optimization');
-        // --- END: Clear loading effect ---
     }
-  });
+  }, 5000)); // <-- 5 seconds between submissions
 });
